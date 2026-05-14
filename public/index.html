@@ -8,7 +8,18 @@
   </head>
   <body>
     <main class="shell">
-      <div class="main-column">
+      <section class="caption-stage" aria-label="中英雙語字幕">
+        <div class="caption-meta">
+          <span id="captionSpeaker">字幕待命</span>
+          <span id="captionMode">自動偵測第一語言 / 第二行繁體中文</span>
+        </div>
+        <div class="caption-lines">
+          <p id="captionPrimary" class="caption-primary">開始對話後，這裡會顯示原語言即時字幕。</p>
+          <p id="captionSecondary" class="caption-secondary">繁體中文字幕會顯示在這裡。</p>
+        </div>
+      </section>
+
+      <div class="workspace">
         <section class="coach-panel">
           <div class="topbar">
             <div>
@@ -36,25 +47,14 @@
           <audio id="remoteAudio" autoplay></audio>
         </section>
 
-        <section class="caption-stage" aria-label="中英雙語字幕">
-          <div class="caption-meta">
-            <span id="captionSpeaker">字幕待命</span>
-            <span id="captionMode">自動偵測第一語言 / 第二行繁體中文</span>
+        <section class="log-panel" aria-label="事件紀錄">
+          <div class="log-header">
+            <h2>即時事件</h2>
+            <button id="clearLogButton" type="button">清空</button>
           </div>
-          <div class="caption-lines">
-            <p id="captionPrimary" class="caption-primary">開始對話後，這裡會顯示原語言即時字幕。</p>
-            <p id="captionSecondary" class="caption-secondary">繁體中文字幕會顯示在這裡。</p>
-          </div>
+          <div id="eventLog" class="event-log" role="log" aria-live="polite"></div>
         </section>
       </div>
-
-      <section class="log-panel" aria-label="事件紀錄">
-        <div class="log-header">
-          <h2>即時事件</h2>
-          <button id="clearLogButton" type="button">清空</button>
-        </div>
-        <div id="eventLog" class="event-log" role="log" aria-live="polite"></div>
-      </section>
     </main>
 
     <script type="module" src="/app.js"></script>
