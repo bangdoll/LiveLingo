@@ -34,6 +34,13 @@ const adaInstructions = `
 6. 使用台灣繁體中文，語氣專業、清楚、穩定。
 `;
 
+function missingApiKeyPayload() {
+  return {
+    error: "缺少 OPENAI_API_KEY",
+    detail: "請在執行環境設定 OPENAI_API_KEY。本機請放在 .env；Vercel 請到 Project Settings > Environment Variables 新增 OPENAI_API_KEY，並重新部署。"
+  };
+}
+
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -92,9 +99,7 @@ function createSessionConfig(overrides = {}) {
 
 async function createRealtimeCall(request, response) {
   if (!openaiApiKey) {
-    sendJson(response, 500, {
-      error: "缺少 OPENAI_API_KEY，請先在專案根目錄 .env 設定。"
-    });
+    sendJson(response, 500, missingApiKeyPayload());
     return;
   }
 
@@ -142,9 +147,7 @@ function extractResponseText(payload) {
 
 async function translateCaption(request, response) {
   if (!openaiApiKey) {
-    sendJson(response, 500, {
-      error: "缺少 OPENAI_API_KEY，請先在專案根目錄 .env 設定。"
-    });
+    sendJson(response, 500, missingApiKeyPayload());
     return;
   }
 

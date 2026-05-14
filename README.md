@@ -37,7 +37,21 @@ OPENAI_API_KEY=...
 ADA_REALTIME_PORT=8787
 ADA_REALTIME_MODEL=gpt-realtime-2
 ADA_REALTIME_VOICE=marin
+ADA_CAPTION_MODEL=gpt-4o-mini
 ```
+
+## Vercel 部署設定
+
+正式部署到 Vercel 時，不會讀取本機 `.env`。請到 Vercel 專案設定新增環境變數：
+
+```text
+OPENAI_API_KEY=你的 OpenAI API Key
+ADA_REALTIME_MODEL=gpt-realtime-2
+ADA_REALTIME_VOICE=marin
+ADA_CAPTION_MODEL=gpt-4o-mini
+```
+
+至少一定要設定 `OPENAI_API_KEY`，並套用到 Production。設定完成後重新部署，否則 `/api/realtime/call` 與 `/api/caption/translate` 會回傳「缺少 OPENAI_API_KEY」。
 
 ## 安全邊界
 
