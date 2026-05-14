@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LiveLingo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <div class="main-column">
+        <section class="coach-panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Realtime Translation MVP</p>
+              <h1>LiveLingo</h1>
+            </div>
+            <span id="statusBadge" class="status idle">待命</span>
+          </div>
+
+          <div class="coach-body">
+            <div class="orb" aria-hidden="true">
+              <div id="pulse" class="pulse"></div>
+            </div>
+
+            <p class="prompt">
+              按下開始後允許麥克風，直接用任一支援語言說話。LiveLingo 會即時顯示原語言字幕，並在第二行輸出繁體中文。
+            </p>
+          </div>
+
+          <div class="controls" aria-label="語音控制">
+            <button id="startButton" class="primary" type="button">開始對話</button>
+            <button id="stopButton" class="secondary" type="button" disabled>停止</button>
+          </div>
+
+          <audio id="remoteAudio" autoplay></audio>
+        </section>
+
+        <section class="caption-stage" aria-label="中英雙語字幕">
+          <div class="caption-meta">
+            <span id="captionSpeaker">字幕待命</span>
+            <span id="captionMode">自動偵測第一語言 / 第二行繁體中文</span>
+          </div>
+          <div class="caption-lines">
+            <p id="captionPrimary" class="caption-primary">開始對話後，這裡會顯示原語言即時字幕。</p>
+            <p id="captionSecondary" class="caption-secondary">繁體中文字幕會顯示在這裡。</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="log-panel" aria-label="事件紀錄">
+        <div class="log-header">
+          <h2>即時事件</h2>
+          <button id="clearLogButton" type="button">清空</button>
+        </div>
+        <div id="eventLog" class="event-log" role="log" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
