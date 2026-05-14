@@ -96,15 +96,23 @@ function detectCaptionLanguage(text) {
 
 function captionModeLabel(sourceLanguage, mode) {
   const label = languageLabels[sourceLanguage] || "原語言";
+  if (isChineseCaption(sourceLanguage)) return `第一語言：${label}・不翻譯・${mode}`;
   return `第一語言：${label} / 第二行：繁體中文・${mode}`;
+}
+
+function isChineseCaption(sourceLanguage) {
+  return sourceLanguage === "zh-Hant";
 }
 
 function renderCaption(role, mode = "即時") {
   const caption = captions[role];
+  const isChinese = isChineseCaption(caption.sourceLanguage);
   captionSpeaker.textContent = caption.label;
   captionMode.textContent = captionModeLabel(caption.sourceLanguage, mode);
   captionPrimary.textContent = caption.source || "正在聆聽...";
-  captionSecondary.textContent = caption.translation || "繁體中文翻譯中...";
+  captionSecondary.textContent = isChinese ? "" : caption.translation || "繁體中文翻譯中...";
+  captionSecondary.hidden = isChinese;
+  captionSecondary.setAttribute("aria-hidden", String(isChinese));
   captionPrimary.lang = caption.sourceLanguage;
   captionSecondary.lang = "zh-Hant";
 }
@@ -113,6 +121,11 @@ async function translateCaption(text, role, mode = "近即時翻譯") {
   const normalized = normalizeCaptionText(text);
   if (normalized.length < 4) return;
   const sourceLanguage = captions[role].sourceLanguage;
+  if (isChineseCaption(sourceLanguage)) {
+    captions[role].translation = "";
+    renderCaption(role, mode);
+    return;
+  }
   const target = "Traditional Chinese";
   const cacheKey = `${sourceLanguage}:${target}:${normalized}`;
 
@@ -148,6 +161,7 @@ async function translateCaption(text, role, mode = "近即時翻譯") {
 
 function scheduleCaptionTranslation(text, role) {
   clearTimeout(captionTranslateTimer);
+  if (isChineseCaption(captions[role].sourceLanguage)) return;
   captionTranslateTimer = window.setTimeout(() => {
     translateCaption(text, role, "近即時翻譯");
   }, 900);
@@ -156,6 +170,7 @@ function scheduleCaptionTranslation(text, role) {
 function applyTranscriptDelta(role, delta) {
   captions[role].source = normalizeCaptionText(`${captions[role].source}${delta || ""}`);
   captions[role].sourceLanguage = detectCaptionLanguage(captions[role].source);
+  if (isChineseCaption(captions[role].sourceLanguage)) captions[role].translation = "";
   renderCaption(role, "即時轉錄中");
   scheduleCaptionTranslation(captions[role].source, role);
 }
@@ -167,7 +182,9 @@ function applyTranscriptDone(role, transcript) {
   captions[role].translation = "";
   captions[role].sourceLanguage = detectCaptionLanguage(text);
   renderCaption(role, "完整字幕");
-  translateCaption(text, role, "完整字幕");
+  if (!isChineseCaption(captions[role].sourceLanguage)) {
+    translateCaption(text, role, "完整字幕");
+  }
 }
 
 function handleCaptionEvent(event) {
