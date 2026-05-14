@@ -117,6 +117,15 @@ function renderCaption(role, mode = "即時") {
   captionSecondary.lang = "zh-Hant";
 }
 
+function resetCaptions() {
+  for (const caption of Object.values(captions)) {
+    caption.source = "";
+    caption.translation = "";
+    caption.sourceLanguage = "zh-Hant";
+  }
+  renderCaption("user", "待命");
+}
+
 async function translateCaption(text, role, mode = "近即時翻譯") {
   const normalized = normalizeCaptionText(text);
   if (normalized.length < 4) return;
@@ -198,19 +207,14 @@ function handleCaptionEvent(event) {
     return;
   }
 
-  if (event.type === "response.audio_transcript.delta" || event.type === "response.output_audio_transcript.delta") {
-    applyTranscriptDelta("assistant", event.delta);
-    return;
-  }
-
-  if (event.type === "response.audio_transcript.done" || event.type === "response.output_audio_transcript.done") {
-    applyTranscriptDone("assistant", event.transcript);
-  }
+  // Ada 的回覆只留在事件紀錄，不覆蓋字幕舞台。
+  // LiveLingo 的主畫面必須固定呈現「使用者原語言字幕 + 繁體中文翻譯」。
 }
 
 async function startConversation() {
   startButton.disabled = true;
   stopButton.disabled = false;
+  resetCaptions();
   setStatus("連線中", "connected");
   pulse.classList.add("live");
   logEvent("準備連線", "正在建立 WebRTC 連線。");
@@ -243,13 +247,6 @@ async function startConversation() {
     dataChannel = peerConnection.createDataChannel("oai-events");
     dataChannel.onopen = () => {
       logEvent("事件通道已開啟", "你可以開始說話。");
-      dataChannel.send(JSON.stringify({
-        type: "response.create",
-        response: {
-          modalities: ["audio", "text"],
-          instructions: "請用繁體中文一句話歡迎使用者，並請他說出現在最需要被教練協助的一件事。"
-        }
-      }));
     };
     dataChannel.onmessage = (message) => {
       const event = JSON.parse(message.data);
