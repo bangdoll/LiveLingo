@@ -7,7 +7,10 @@ const statusBadge = document.querySelector("#statusBadge");
 const costBadge = document.querySelector("#costBadge");
 const remoteAudio = document.querySelector("#remoteAudio");
 const eventLog = document.querySelector("#eventLog");
-const pulse = document.querySelector("#pulse");
+const adaFace = document.querySelector("#adaFace");
+const adaMouth = document.querySelector("#adaMouth");
+let mouthAnimationId = null;
+let currentFaceState = "idle";
 const captionSpeaker = document.querySelector("#captionSpeaker");
 const captionMode = document.querySelector("#captionMode");
 const captionPrimary = document.querySelector("#captionPrimary");
@@ -74,6 +77,45 @@ const languageLabels = {
 function setStatus(label, mode = "idle") {
   statusBadge.textContent = label;
   statusBadge.className = `status ${mode}`;
+}
+
+function setFaceState(state) {
+  if (currentFaceState === state) return;
+  currentFaceState = state;
+  adaFace.className = `ada-face ${state}`;
+  if (state === "speaking") {
+    startMouthAnimation();
+  } else {
+    stopMouthAnimation();
+  }
+}
+
+function startMouthAnimation() {
+  stopMouthAnimation();
+  let frame = 0;
+  function animate() {
+    frame += 1;
+    // 模擬說話的嘴型變化 (用正弦波疊加)
+    const openAmount = Math.abs(Math.sin(frame * 0.18)) * 0.6 + Math.abs(Math.sin(frame * 0.07)) * 0.4;
+    const h = 4 + openAmount * 14;
+    const w = 20 + openAmount * 10;
+    const r = 4 + openAmount * 6;
+    adaMouth.style.height = `${h}px`;
+    adaMouth.style.width = `${w}px`;
+    adaMouth.style.borderRadius = `${r}px`;
+    mouthAnimationId = requestAnimationFrame(animate);
+  }
+  mouthAnimationId = requestAnimationFrame(animate);
+}
+
+function stopMouthAnimation() {
+  if (mouthAnimationId) {
+    cancelAnimationFrame(mouthAnimationId);
+    mouthAnimationId = null;
+  }
+  adaMouth.style.height = "";
+  adaMouth.style.width = "";
+  adaMouth.style.borderRadius = "";
 }
 
 function logEvent(title, detail = "") {
@@ -426,11 +468,13 @@ function handleCaptionEvent(event) {
     captions.assistant.source = "";
     captions.assistant.translation = "";
     captions.assistant.sourceLanguage = "zh-Hant";
+    setFaceState("thinking");
     renderCaption("assistant", "Ada 思考中");
     return;
   }
 
   if (event.type === "conversation.item.input_audio_transcription.delta") {
+    setFaceState("listening");
     applyTranscriptDelta("user", event.delta);
     return;
   }
@@ -451,12 +495,15 @@ function handleCaptionEvent(event) {
   }
 
   if (event.type === "response.audio_transcript.delta" || event.type === "response.output_audio_transcript.delta") {
+    setFaceState("speaking");
     applyAssistantDelta(event);
     return;
   }
 
   if (event.type === "response.audio_transcript.done" || event.type === "response.output_audio_transcript.done") {
     applyAssistantDone(event);
+    // 語音播完後短暫延遲回到 idle
+    setTimeout(() => setFaceState("idle"), 800);
   }
 }
 
@@ -489,7 +536,8 @@ async function startConversation() {
   stopButton.disabled = false;
   resetCaptions();
   setStatus("連線中", "connected");
-  pulse.classList.add("live");
+  adaFace.classList.add("live");
+  setFaceState("idle");
   logEvent("準備連線", "正在建立 WebRTC 連線。");
 
   try {
@@ -499,7 +547,8 @@ async function startConversation() {
       logEvent("WebRTC 狀態", peerConnection.connectionState);
       if (peerConnection.connectionState === "connected") setStatus("對話中", "connected");
       if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState)) {
-        pulse.classList.remove("live");
+        adaFace.classList.remove("live");
+        setFaceState("idle");
       }
     };
 
@@ -575,7 +624,8 @@ function stopConversation() {
   };
   remoteAudio.srcObject = null;
 
-  pulse.classList.remove("live");
+  adaFace.classList.remove("live");
+  setFaceState("idle");
   setStatus("待命");
   startButton.disabled = false;
   stopButton.disabled = true;
