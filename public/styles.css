@@ -282,6 +282,110 @@ h2 {
 }
 /* 說話時嘴巴動畫交由 JS 控制，這裡給個預設過渡 */
 
+/* 設定面板 */
+.settings-toggle {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  transition: color 0.2s, border-color 0.2s;
+  width: 36px;
+}
+.settings-toggle:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.settings-panel {
+  background: rgba(15, 20, 28, 0.95);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  animation: slideDown 0.2s ease-out;
+}
+.settings-panel[hidden] { display: none; }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.setting-row {
+  display: grid;
+  gap: 6px;
+}
+.setting-row label {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.setting-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.input-group {
+  display: flex;
+  gap: 8px;
+}
+.input-group input {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  flex: 1;
+  font-family: monospace;
+  font-size: 14px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+.input-group input:focus {
+  border-color: var(--gold);
+  outline: none;
+}
+.input-group button {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.settings-panel select {
+  appearance: none;
+  background: var(--panel-strong) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='6'%3E%3Cpath d='M0 0l6 6 6-6z' fill='%239aa7b8'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  min-height: 40px;
+  padding: 0 32px 0 12px;
+}
+.settings-panel select:focus {
+  border-color: var(--gold);
+  outline: none;
+}
+
+.checkbox-label {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--gold);
+  height: 18px;
+  width: 18px;
+}
+
 .prompt {
   color: var(--muted);
   font-size: 15px;

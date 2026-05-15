@@ -6,6 +6,7 @@ const clearLogButton = document.querySelector("#clearLogButton");
 const statusBadge = document.querySelector("#statusBadge");
 const costBadge = document.querySelector("#costBadge");
 const remoteAudio = document.querySelector("#remoteAudio");
+const translateAudio = document.querySelector("#translateAudio");
 const eventLog = document.querySelector("#eventLog");
 const adaFace = document.querySelector("#adaFace");
 const adaMouth = document.querySelector("#adaMouth");
@@ -15,6 +16,19 @@ const captionSpeaker = document.querySelector("#captionSpeaker");
 const captionMode = document.querySelector("#captionMode");
 const captionPrimary = document.querySelector("#captionPrimary");
 const captionSecondary = document.querySelector("#captionSecondary");
+
+// BYOK 設定
+const settingsToggle = document.querySelector("#settingsToggle");
+const settingsPanel = document.querySelector("#settingsPanel");
+const apiKeyInput = document.querySelector("#apiKeyInput");
+const toggleKeyVisibility = document.querySelector("#toggleKeyVisibility");
+const translateLangSelect = document.querySelector("#translateLang");
+const enableTranslateModeCheckbox = document.querySelector("#enableTranslateMode");
+
+// Realtime-Translate 狀態
+let translatePeerConnection;
+let translateDataChannel;
+let translateModeActive = false;
 
 let peerConnection;
 let dataChannel;
@@ -42,8 +56,10 @@ let pendingTranslationByRole = {
   user: false,
   assistant: false
 };
-let totalTokens = 0;
-let totalCostUsd = 0;
+let sessionTokens = 0;
+let sessionCostUsd = 0;
+let lifetimeTokens = Number(localStorage.getItem("livelingo_lifetime_tokens") || 0);
+let lifetimeCostUsd = Number(localStorage.getItem("livelingo_lifetime_cost") || 0);
 const MIN_FINAL_SENTENCE_CHARS = 4;
 
 const captions = {
@@ -437,7 +453,9 @@ function applyTranscriptDone(role, transcript) {
 
 function updateCostFromUsage(usage) {
   if (!usage) return;
-  totalTokens += usage.total_tokens || 0;
+  const tokens = usage.total_tokens || 0;
+  sessionTokens += tokens;
+  lifetimeTokens += tokens;
   
   const inAudio = usage.input_token_details?.audio_tokens || 0;
   const inText = Math.max(0, (usage.input_tokens || 0) - inAudio);
@@ -445,10 +463,16 @@ function updateCostFromUsage(usage) {
   const outText = Math.max(0, (usage.output_tokens || 0) - outAudio);
   
   // Audio In: $0.10/1k, Text In: $0.005/1k, Audio Out: $0.20/1k, Text Out: $0.02/1k
-  totalCostUsd += (inAudio * 0.0001) + (inText * 0.000005) + (outAudio * 0.0002) + (outText * 0.00002);
+  const cost = (inAudio * 0.0001) + (inText * 0.000005) + (outAudio * 0.0002) + (outText * 0.00002);
+  sessionCostUsd += cost;
+  lifetimeCostUsd += cost;
+  
+  // 持久化累計數據
+  localStorage.setItem("livelingo_lifetime_tokens", lifetimeTokens);
+  localStorage.setItem("livelingo_lifetime_cost", lifetimeCostUsd);
   
   if (costBadge) {
-    costBadge.textContent = `${totalTokens} Tokens ($${totalCostUsd.toFixed(3)})`;
+    costBadge.textContent = `${sessionTokens} / ${lifetimeTokens} Tokens ($${sessionCostUsd.toFixed(3)})`;
   }
 }
 
@@ -507,7 +531,72 @@ function handleCaptionEvent(event) {
   }
 }
 
+// ──── BYOK 設定管理 ────
+
+function getStoredApiKey() {
+  return localStorage.getItem("livelingo_api_key") || "";
+}
+
+function saveApiKey(key) {
+  if (key) {
+    localStorage.setItem("livelingo_api_key", key);
+  } else {
+    localStorage.removeItem("livelingo_api_key");
+  }
+}
+
+function getTranslateEnabled() {
+  return localStorage.getItem("livelingo_translate_mode") === "true";
+}
+
+function getTranslateLang() {
+  return localStorage.getItem("livelingo_translate_lang") || "zh";
+}
+
+function initSettings() {
+  apiKeyInput.value = getStoredApiKey();
+  enableTranslateModeCheckbox.checked = getTranslateEnabled();
+  translateLangSelect.value = getTranslateLang();
+
+  settingsToggle.addEventListener("click", () => {
+    settingsPanel.hidden = !settingsPanel.hidden;
+  });
+
+  apiKeyInput.addEventListener("change", () => {
+    saveApiKey(apiKeyInput.value.trim());
+    logEvent("API Key 已更新", apiKeyInput.value ? "使用自備金鑰" : "使用系統金鑰");
+  });
+
+  toggleKeyVisibility.addEventListener("click", () => {
+    apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
+  });
+
+  enableTranslateModeCheckbox.addEventListener("change", () => {
+    localStorage.setItem("livelingo_translate_mode", enableTranslateModeCheckbox.checked);
+  });
+
+  translateLangSelect.addEventListener("change", () => {
+    localStorage.setItem("livelingo_translate_lang", translateLangSelect.value);
+  });
+}
+
+// ──── Token 建立（支援 BYOK） ────
+
 async function createEphemeralKey() {
+  const userKey = getStoredApiKey();
+  if (userKey) {
+    const response = await fetch("/api/realtime/byok-token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: userKey })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "BYOK token 建立失敗");
+    const key = payload.value || payload.client_secret?.value || payload.client_secret;
+    if (!key) throw new Error("BYOK token 回傳格式不完整");
+    return key;
+  }
+
   const response = await fetch("/api/realtime/token", { method: "POST" });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "Realtime token 建立失敗");
@@ -531,9 +620,145 @@ async function exchangeSdpDirectly(offerSdp) {
   return response.text();
 }
 
+// ──── Realtime-Translate 連線 ────
+
+async function createTranslateEphemeralKey(targetLang) {
+  const userKey = getStoredApiKey();
+  const body = { target_language: targetLang };
+  if (userKey) body.api_key = userKey;
+
+  const response = await fetch("/api/realtime/translate-token", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Translate token 建立失敗");
+  const key = payload.value || payload.client_secret?.value || payload.client_secret;
+  if (!key) throw new Error("Translate token 回傳格式不完整");
+  return key;
+}
+
+function handleTranslateEvent(event) {
+  // Realtime-Translate 會送出 source transcript 和 translated transcript
+  if (event.type === "session.input_transcript.delta") {
+    // 來源語言即時轉錄（第一行字幕）
+    const delta = event.delta || "";
+    captions.user.source = normalizeCaptionText(`${captions.user.source}${delta}`);
+    captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
+    captionSpeaker.textContent = "即時口譯";
+    captionPrimary.textContent = captions.user.source || "正在聆聽...";
+    captionPrimary.lang = captions.user.sourceLanguage;
+    return;
+  }
+
+  if (event.type === "session.input_transcript.done") {
+    captions.user.source = normalizeCaptionText(event.transcript || captions.user.source);
+    captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
+    captionPrimary.textContent = captions.user.source;
+    return;
+  }
+
+  if (event.type === "session.output_transcript.delta") {
+    // 翻譯後的文字（第二行字幕）
+    const delta = event.delta || "";
+    captions.user.translation = normalizeCaptionText(`${captions.user.translation}${delta}`);
+    captionSecondary.textContent = captions.user.translation || "翻譯中...";
+    captionSecondary.hidden = false;
+    captionSecondary.lang = getTranslateLang() === "zh" ? "zh-Hant" : getTranslateLang();
+    captionMode.textContent = "Realtime-Translate 即時口譯";
+    return;
+  }
+
+  if (event.type === "session.output_transcript.done") {
+    captions.user.translation = normalizeCaptionText(event.transcript || captions.user.translation);
+    captionSecondary.textContent = captions.user.translation;
+    return;
+  }
+
+  // 當偵測到新句子開始，清空前一句
+  if (event.type === "session.input_audio_started") {
+    captions.user.source = "";
+    captions.user.translation = "";
+    captionPrimary.textContent = "正在聆聽...";
+    captionSecondary.textContent = "翻譯中...";
+    return;
+  }
+
+  if (event.type === "error") {
+    logEvent("翻譯引擎錯誤", event.error?.message || "Realtime-Translate 發生錯誤");
+  }
+}
+
+async function startTranslateConnection(stream) {
+  const targetLang = getTranslateLang();
+  logEvent("啟動即時口譯", `目標語言：${targetLang}`);
+
+  try {
+    const ephemeralKey = await createTranslateEphemeralKey(targetLang);
+
+    translatePeerConnection = new RTCPeerConnection();
+
+    translatePeerConnection.ontrack = (event) => {
+      translateAudio.srcObject = event.streams[0];
+      logEvent("翻譯音訊已接入", "即時口譯音訊就緒");
+    };
+
+    // 共用同一個麥克風串流
+    stream.getTracks().forEach((track) => {
+      translatePeerConnection.addTrack(track, stream);
+    });
+
+    translateDataChannel = translatePeerConnection.createDataChannel("oai-events");
+    translateDataChannel.onmessage = (message) => {
+      const event = JSON.parse(message.data);
+      handleTranslateEvent(event);
+    };
+
+    const offer = await translatePeerConnection.createOffer();
+    await translatePeerConnection.setLocalDescription(offer);
+
+    const sdpResponse = await fetch(`https://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate`, {
+      method: "POST",
+      body: offer.sdp,
+      headers: {
+        authorization: `Bearer ${ephemeralKey}`,
+        "content-type": "application/sdp"
+      }
+    });
+
+    if (!sdpResponse.ok) throw new Error(await sdpResponse.text());
+
+    await translatePeerConnection.setRemoteDescription({
+      type: "answer",
+      sdp: await sdpResponse.text()
+    });
+
+    translateModeActive = true;
+    logEvent("即時口譯已連線", "Realtime-Translate 就緒");
+  } catch (error) {
+    logEvent("即時口譯啟動失敗", error instanceof Error ? error.message : String(error));
+    translateModeActive = false;
+  }
+}
+
+function stopTranslateConnection() {
+  if (translateDataChannel && translateDataChannel.readyState !== "closed") translateDataChannel.close();
+  if (translatePeerConnection && translatePeerConnection.connectionState !== "closed") translatePeerConnection.close();
+  translateDataChannel = undefined;
+  translatePeerConnection = undefined;
+  translateModeActive = false;
+  translateAudio.srcObject = null;
+}
+
+// ──── 主對話流程 ────
+
 async function startConversation() {
   startButton.disabled = true;
   stopButton.disabled = false;
+  sessionTokens = 0;
+  sessionCostUsd = 0;
+  if (costBadge) costBadge.textContent = `0 / ${lifetimeTokens} Tokens`;
   resetCaptions();
   setStatus("連線中", "connected");
   adaFace.classList.add("live");
@@ -584,6 +809,11 @@ async function startConversation() {
       type: "answer",
       sdp: await exchangeSdpDirectly(offer.sdp)
     });
+
+    // 如果啟用了即時口譯模式，同時啟動翻譯連線
+    if (getTranslateEnabled()) {
+      await startTranslateConnection(localStream);
+    }
   } catch (error) {
     setStatus("錯誤", "error");
     logEvent("啟動失敗", error instanceof Error ? error.message : String(error));
@@ -592,6 +822,8 @@ async function startConversation() {
 }
 
 function stopConversation() {
+  stopTranslateConnection();
+
   if (dataChannel && dataChannel.readyState !== "closed") dataChannel.close();
   if (peerConnection && peerConnection.connectionState !== "closed") peerConnection.close();
   if (localStream) localStream.getTracks().forEach((track) => track.stop());
@@ -632,6 +864,9 @@ function stopConversation() {
   logEvent("已停止", "WebRTC 連線與麥克風已關閉。");
 }
 
+// ──── 初始化 ────
+
+initSettings();
 startButton.addEventListener("click", startConversation);
 stopButton.addEventListener("click", stopConversation);
 clearLogButton.addEventListener("click", () => {

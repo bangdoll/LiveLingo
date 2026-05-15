@@ -14,6 +14,7 @@ const model = process.env.ADA_REALTIME_MODEL || "gpt-realtime-2";
 const voice = process.env.ADA_REALTIME_VOICE || "marin";
 const captionModel = process.env.ADA_CAPTION_MODEL || "gpt-4o-mini";
 const searchModel = process.env.ADA_SEARCH_MODEL || "gpt-5.5";
+const translateModel = process.env.ADA_TRANSLATE_MODEL || "gpt-realtime-translate";
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const realtimeSecretTtlSeconds = Number(process.env.ADA_REALTIME_SECRET_TTL_SECONDS || 120);
 
@@ -137,7 +138,7 @@ function createSessionConfig(overrides = {}) {
       },
       input: {
         transcription: {
-          model: "gpt-4o-mini-transcribe"
+          model: "gpt-realtime-whisper"
         },
         turn_detection: {
           type: "server_vad",
@@ -439,6 +440,90 @@ async function translateCaption(request, response) {
   });
 }
 
+async function createTranslateClientSecret(request, response) {
+  const rawBody = await readRequestBody(request, 4_000);
+  const payload = rawBody ? JSON.parse(rawBody) : {};
+  const targetLanguage = String(payload.target_language || "zh").trim();
+  const apiKey = String(payload.api_key || "").trim() || openaiApiKey;
+
+  if (!apiKey) {
+    sendJson(response, 500, missingApiKeyPayload());
+    return;
+  }
+
+  const upstream = await fetch("https://api.openai.com/v1/realtime/translations/client_secrets", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+      "openai-safety-identifier": safetyIdentifier(request)
+    },
+    body: JSON.stringify({
+      session: {
+        model: translateModel,
+        audio: {
+          input: {
+            transcription: { model: "gpt-realtime-whisper" },
+            noise_reduction: { type: "near_field" }
+          },
+          output: { language: targetLanguage }
+        }
+      }
+    })
+  });
+
+  const data = await upstream.json();
+  if (!upstream.ok) {
+    sendJson(response, upstream.status, {
+      error: "Realtime-Translate token 建立失敗",
+      status: upstream.status,
+      detail: data
+    });
+    return;
+  }
+
+  sendJson(response, 200, data);
+}
+
+async function createByokClientSecret(request, response) {
+  const rawBody = await readRequestBody(request, 4_000);
+  const payload = rawBody ? JSON.parse(rawBody) : {};
+  const apiKey = String(payload.api_key || "").trim();
+
+  if (!apiKey) {
+    sendJson(response, 400, { error: "BYOK 模式需要提供 api_key" });
+    return;
+  }
+
+  const upstream = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+      "openai-safety-identifier": safetyIdentifier(request)
+    },
+    body: JSON.stringify({
+      expires_after: {
+        anchor: "created_at",
+        seconds: Math.min(Math.max(realtimeSecretTtlSeconds, 10), 7200)
+      },
+      session: createSessionConfig()
+    })
+  });
+
+  const data = await upstream.json();
+  if (!upstream.ok) {
+    sendJson(response, upstream.status, {
+      error: "BYOK token 建立失敗",
+      status: upstream.status,
+      detail: data
+    });
+    return;
+  }
+
+  sendJson(response, 200, data);
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const safePath = normalize(url.pathname === "/" ? "/index.html" : url.pathname);
@@ -480,6 +565,16 @@ export async function handleRequest(request, response) {
 
     if (request.method === "POST" && url.pathname === "/api/realtime/token") {
       await createRealtimeClientSecret(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/realtime/translate-token") {
+      await createTranslateClientSecret(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/realtime/byok-token") {
+      await createByokClientSecret(request, response);
       return;
     }
 

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API Key 設定教學｜LiveLingo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #151b23;
+        --line: #303947;
+        --text: #f5f7fb;
+        --muted: #9aa7b8;
+        --gold: #c8a64b;
+        --green: #38d996;
+        --red: #ff5c5c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at 50% 0%, #172131 0, var(--bg) 44%);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.7;
+      }
+      .container {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: clamp(24px, 4vw, 48px) clamp(16px, 3vw, 32px);
+      }
+      .back-link {
+        color: var(--gold);
+        text-decoration: none;
+        font-size: 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 24px;
+      }
+      .back-link:hover { text-decoration: underline; }
+      h1 {
+        font-size: clamp(28px, 4vw, 40px);
+        line-height: 1.2;
+        margin: 0 0 8px;
+      }
+      .subtitle {
+        color: var(--muted);
+        font-size: 16px;
+        margin: 0 0 40px;
+      }
+      h2 {
+        font-size: 22px;
+        margin: 40px 0 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--line);
+        color: var(--gold);
+      }
+      h3 {
+        font-size: 18px;
+        margin: 28px 0 12px;
+      }
+      p, li { color: var(--text); font-size: 15px; }
+      ol, ul { padding-left: 24px; }
+      li { margin-bottom: 10px; }
+      code {
+        background: rgba(200, 166, 75, 0.12);
+        border: 1px solid rgba(200, 166, 75, 0.2);
+        border-radius: 4px;
+        color: var(--gold);
+        font-family: "SF Mono", "Fira Code", monospace;
+        font-size: 13px;
+        padding: 2px 6px;
+      }
+      .step-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin: 16px 0;
+        padding: 20px 24px;
+      }
+      .step-card h3 {
+        margin-top: 0;
+        color: var(--gold);
+      }
+      .callout {
+        background: rgba(56, 217, 150, 0.08);
+        border-left: 4px solid var(--green);
+        border-radius: 0 8px 8px 0;
+        margin: 20px 0;
+        padding: 16px 20px;
+      }
+      .callout.warning {
+        background: rgba(255, 92, 92, 0.08);
+        border-left-color: var(--red);
+      }
+      .callout strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      .pricing-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 14px;
+      }
+      .pricing-table th, .pricing-table td {
+        border: 1px solid var(--line);
+        padding: 10px 14px;
+        text-align: left;
+      }
+      .pricing-table th {
+        background: rgba(200, 166, 75, 0.1);
+        color: var(--gold);
+        font-weight: 700;
+      }
+      .pricing-table td { color: var(--text); }
+      .footer {
+        margin-top: 48px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+      a { color: var(--gold); }
+      img {
+        max-width: 100%;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        margin: 12px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a href="/" class="back-link">← 返回 LiveLingo</a>
+
+      <h1>🔑 LiveLingo API Key 設定教學</h1>
+      <p class="subtitle">三步驟完成設定，開始使用即時雙語語音助理</p>
+
+      <h2>為什麼需要 API Key？</h2>
+      <p>
+        LiveLingo 使用 OpenAI 的 <strong>Realtime API</strong> 提供即時語音對話、雙語字幕翻譯與網路搜尋功能。
+        您可以選擇使用系統預設金鑰（額度有限），或填入自己的 OpenAI API Key 以獲得完整的使用體驗。
+      </p>
+
+      <div class="callout">
+        <strong>💡 自備金鑰的好處</strong>
+        使用自己的 API Key 可以享有更高的使用額度、更低的延遲，且不受系統共用配額的限制。
+        金鑰僅儲存在您的瀏覽器本地 (localStorage)，不會傳送至任何第三方伺服器。
+      </div>
+
+      <h2>設定步驟</h2>
+
+      <div class="step-card">
+        <h3>步驟一：建立 OpenAI 帳號</h3>
+        <ol>
+          <li>前往 <a href="https://platform.openai.com/signup" target="_blank">OpenAI Platform</a> 註冊帳號</li>
+          <li>完成電子郵件驗證與手機驗證</li>
+          <li>登入後進入 <a href="https://platform.openai.com/settings/billing" target="_blank">Billing 頁面</a>，加入付款方式（信用卡或金融卡）</li>
+        </ol>
+      </div>
+
+      <div class="step-card">
+        <h3>步驟二：產生 API Key</h3>
+        <ol>
+          <li>前往 <a href="https://platform.openai.com/api-keys" target="_blank">API Keys 頁面</a></li>
+          <li>點擊 <strong>「Create new secret key」</strong></li>
+          <li>為金鑰取個名稱（例如 <code>LiveLingo</code>），選擇權限為 <strong>All</strong></li>
+          <li>複製產生的金鑰（格式為 <code>sk-proj-...</code>）</li>
+        </ol>
+        <div class="callout warning">
+          <strong>⚠️ 安全提醒</strong>
+          API Key 只會在建立時顯示一次，請立即複製並妥善保管。切勿將金鑰分享給他人或張貼在公開場合。
+        </div>
+      </div>
+
+      <div class="step-card">
+        <h3>步驟三：在 LiveLingo 中填入金鑰</h3>
+        <ol>
+          <li>回到 <a href="/">LiveLingo 首頁</a></li>
+          <li>點擊右上角的 <strong>⚙ 齒輪圖示</strong> 打開設定面板</li>
+          <li>在「OpenAI API Key」欄位中貼上您的金鑰</li>
+          <li>按下 Enter 或點擊其他地方，金鑰會自動儲存</li>
+          <li>點擊「開始對話」即可使用！</li>
+        </ol>
+      </div>
+
+      <h2>費用說明</h2>
+      <p>LiveLingo 使用以下 OpenAI 模型，費用由 OpenAI 直接從您的帳戶扣款：</p>
+
+      <table class="pricing-table">
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>用途</th>
+            <th>費率</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>gpt-realtime-2</code></td>
+            <td>語音對話（Ada 助理）</td>
+            <td>音訊輸入 $0.10/千 tokens<br>音訊輸出 $0.20/千 tokens</td>
+          </tr>
+          <tr>
+            <td><code>gpt-realtime-translate</code></td>
+            <td>即時口譯（選用）</td>
+            <td>$0.034/分鐘</td>
+          </tr>
+          <tr>
+            <td><code>gpt-realtime-whisper</code></td>
+            <td>語音轉文字</td>
+            <td>含在 Realtime 費用中</td>
+          </tr>
+          <tr>
+            <td><code>gpt-4o-mini</code></td>
+            <td>字幕翻譯（備用）</td>
+            <td>$0.15/百萬 tokens</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>💰 費用估算</strong>
+        一般 10 分鐘的中文對話，大約花費 $0.30 ~ $0.60 美元。
+        即時口譯模式額外約 $0.34（每 10 分鐘）。
+        LiveLingo 會在介面右上角即時顯示「當次 / 累計」的 Token 消耗與費用，幫您隨時掌握開銷。
+      </div>
+
+      <h2>常見問題</h2>
+
+      <h3>Q：金鑰儲存在哪裡？安全嗎？</h3>
+      <p>金鑰儲存在您瀏覽器的 <code>localStorage</code> 中，只存在您的裝置上。建立 Token 時會透過 LiveLingo 伺服器中轉（因為瀏覽器無法直接呼叫 OpenAI 的 API 建立 Token），但金鑰本身不會被記錄或儲存於任何伺服器。</p>
+
+      <h3>Q：不填 API Key 也能用嗎？</h3>
+      <p>是的，如果伺服器已設定系統金鑰，您可以直接使用。但系統金鑰的額度有限，建議長期使用者填入自己的金鑰。</p>
+
+      <h3>Q：如何移除我的金鑰？</h3>
+      <p>打開 ⚙ 設定面板，清空 API Key 欄位後按 Enter 即可。也可以在瀏覽器開發者工具中執行 <code>localStorage.removeItem("livelingo_api_key")</code>。</p>
+
+      <h3>Q：什麼是「即時口譯模式」？</h3>
+      <p>
+        這是 LiveLingo 的進階功能，使用 OpenAI 最新的 <code>gpt-realtime-translate</code> 模型。
+        啟用後，語音翻譯不再需要「語音→文字→翻譯」三步串接，而是直接在語音層面即時口譯，
+        延遲大幅降低，體驗就像現場口譯員一樣流暢。
+      </p>
+
+      <div class="footer">
+        <p>LiveLingo — 即時雙語語音助理 · 由 <a href="https://rd.coach" target="_blank">rd.coach</a> 打造</p>
+      </div>
+    </div>
+  </body>
+</html>

@@ -27,8 +27,46 @@
               <h1>LiveLingo</h1>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <span id="costBadge" class="status" style="font-family: monospace; background: var(--surface-2); color: var(--text-2);">0 Tokens</span>
+              <span id="costBadge" class="status" style="font-family: monospace;">0 Tokens</span>
               <span id="statusBadge" class="status idle">待命</span>
+              <button id="settingsToggle" class="settings-toggle" type="button" title="設定">⚙</button>
+            </div>
+          </div>
+
+          <!-- BYOK 設定面板 -->
+          <div id="settingsPanel" class="settings-panel" hidden>
+            <div class="setting-row">
+              <label for="apiKeyInput">OpenAI API Key（選填，自備金鑰）</label>
+              <div class="input-group">
+                <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                <button id="toggleKeyVisibility" type="button" title="顯示/隱藏">👁</button>
+              </div>
+              <p class="setting-hint">留空則使用系統金鑰。輸入後會儲存在瀏覽器本地，不會傳送至任何第三方。<a href="/guide.html" target="_blank" style="color: var(--gold); margin-left: 6px;">📖 設定教學</a></p>
+            </div>
+            <div class="setting-row">
+              <label for="translateLang">即時翻譯目標語言</label>
+              <select id="translateLang">
+                <option value="zh" selected>繁體中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="pt">Português</option>
+                <option value="ru">Русский</option>
+                <option value="ar">العربية</option>
+                <option value="it">Italiano</option>
+                <option value="hi">हिन्दी</option>
+                <option value="nl">Nederlands</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label class="checkbox-label">
+                <input id="enableTranslateMode" type="checkbox" />
+                啟用 Realtime-Translate（即時口譯模式，取代文字翻譯）
+              </label>
+              <p class="setting-hint">開啟後會使用 GPT-Realtime-Translate 模型進行即時語音翻譯，延遲更低但成本為 $0.034/分鐘。</p>
             </div>
           </div>
 
@@ -54,6 +92,7 @@
           </div>
 
           <audio id="remoteAudio" autoplay></audio>
+          <audio id="translateAudio" autoplay></audio>
         </section>
 
         <section class="log-panel" aria-label="事件紀錄">
