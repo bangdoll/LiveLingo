@@ -14,6 +14,7 @@ const model = process.env.ADA_REALTIME_MODEL || "gpt-realtime-2";
 const voice = process.env.ADA_REALTIME_VOICE || "marin";
 const captionModel = process.env.ADA_CAPTION_MODEL || "gpt-4o-mini";
 const openaiApiKey = process.env.OPENAI_API_KEY;
+const realtimeSecretTtlSeconds = Number(process.env.ADA_REALTIME_SECRET_TTL_SECONDS || 120);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -76,6 +77,7 @@ function createSessionConfig(overrides = {}) {
     type: "realtime",
     model,
     instructions: adaInstructions,
+    output_modalities: ["text"],
     audio: {
       output: {
         voice
@@ -95,6 +97,41 @@ function createSessionConfig(overrides = {}) {
     },
     ...overrides
   };
+}
+
+async function createRealtimeClientSecret(request, response) {
+  if (!openaiApiKey) {
+    sendJson(response, 500, missingApiKeyPayload());
+    return;
+  }
+
+  const upstream = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${openaiApiKey}`,
+      "content-type": "application/json",
+      "openai-safety-identifier": safetyIdentifier(request)
+    },
+    body: JSON.stringify({
+      expires_after: {
+        anchor: "created_at",
+        seconds: Math.min(Math.max(realtimeSecretTtlSeconds, 10), 7200)
+      },
+      session: createSessionConfig()
+    })
+  });
+
+  const data = await upstream.json();
+  if (!upstream.ok) {
+    sendJson(response, upstream.status, {
+      error: "Realtime 短效 token 建立失敗",
+      status: upstream.status,
+      detail: data
+    });
+    return;
+  }
+
+  sendJson(response, 200, data);
 }
 
 async function createRealtimeCall(request, response) {
@@ -259,6 +296,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/realtime/call") {
       await createRealtimeCall(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/realtime/token") {
+      await createRealtimeClientSecret(request, response);
       return;
     }
 
