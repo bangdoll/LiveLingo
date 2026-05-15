@@ -1,5 +1,4 @@
 const REALTIME_MODEL = "gpt-realtime-2";
-const CAPTION_TRANSLATION_DEBOUNCE_MS = 250;
 
 const startButton = document.querySelector("#startButton");
 const stopButton = document.querySelector("#stopButton");
@@ -16,10 +15,9 @@ const captionSecondary = document.querySelector("#captionSecondary");
 let peerConnection;
 let dataChannel;
 let localStream;
-let captionTranslateTimer;
-let captionRequestId = 0;
+let activeTranslationResponseId;
+let activeTranslationText = "";
 
-const translationCache = new Map();
 const captions = {
   user: {
     label: "你",
@@ -70,6 +68,8 @@ function logEvent(title, detail = "") {
 function eventSummary(event) {
   if (event.type === "response.audio_transcript.done") return event.transcript || "";
   if (event.type === "response.output_audio_transcript.done") return event.transcript || "";
+  if (event.type === "response.output_text.done") return event.text || "";
+  if (event.type === "response.done") return event.response?.status || "";
   if (event.type === "conversation.item.input_audio_transcription.completed") return event.transcript || "";
   if (event.type === "error") return event.error?.message || "Realtime 發生錯誤";
   return "";
@@ -127,54 +127,64 @@ function resetCaptions() {
   renderCaption("user", "待命");
 }
 
-async function translateCaption(text, role, mode = "近即時翻譯") {
-  const normalized = normalizeCaptionText(text);
-  if (normalized.length < 4) return;
-  const sourceLanguage = captions[role].sourceLanguage;
-  if (isChineseCaption(sourceLanguage)) {
-    captions[role].translation = "";
-    renderCaption(role, mode);
-    return;
+function sendRealtimeEvent(event) {
+  if (!dataChannel || dataChannel.readyState !== "open") {
+    throw new Error("Realtime 事件通道尚未開啟");
   }
-  const target = "Traditional Chinese";
-  const cacheKey = `${sourceLanguage}:${target}:${normalized}`;
-
-  if (translationCache.has(cacheKey)) {
-    captions[role].translation = translationCache.get(cacheKey);
-    renderCaption(role, mode);
-    return;
-  }
-
-  const requestId = ++captionRequestId;
-  try {
-    const response = await fetch("/api/caption/translate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        text: normalized,
-        target
-      })
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "字幕翻譯失敗");
-    if (requestId < captionRequestId && mode !== "完整字幕") return;
-
-    captions[role].translation = payload.translation || "";
-    translationCache.set(cacheKey, captions[role].translation);
-    renderCaption(role, mode);
-  } catch (error) {
-    captions[role].translation = "Translation unavailable.";
-    renderCaption(role, "翻譯失敗");
-    logEvent("字幕翻譯失敗", error instanceof Error ? error.message : String(error));
-  }
+  dataChannel.send(JSON.stringify(event));
 }
 
-function scheduleCaptionTranslation(text, role) {
-  clearTimeout(captionTranslateTimer);
-  if (isChineseCaption(captions[role].sourceLanguage)) return;
-  captionTranslateTimer = window.setTimeout(() => {
-    translateCaption(text, role, "近即時翻譯");
-  }, CAPTION_TRANSLATION_DEBOUNCE_MS);
+function requestRealtimeTranslation(text, role) {
+  const normalized = normalizeCaptionText(text);
+  if (normalized.length < 2 || isChineseCaption(captions[role].sourceLanguage)) return;
+
+  activeTranslationResponseId = undefined;
+  activeTranslationText = "";
+  captions[role].translation = "";
+  renderCaption(role, "Realtime 翻譯中");
+
+  sendRealtimeEvent({
+    type: "response.create",
+    response: {
+      conversation: "none",
+      output_modalities: ["text"],
+      metadata: {
+        response_purpose: "caption_translation"
+      },
+      instructions: [
+        "你是 LiveLingo 即時字幕翻譯器。",
+        "把使用者提供的字幕翻成台灣繁體中文。",
+        "只輸出翻譯，不要回答問題，不要補充說明，不要加引號。"
+      ].join("\n"),
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `請翻譯成台灣繁體中文：\n${normalized}`
+            }
+          ]
+        }
+      ]
+    }
+  });
+}
+
+function applyTranslationDelta(event) {
+  if (!activeTranslationResponseId) activeTranslationResponseId = event.response_id;
+  if (event.response_id !== activeTranslationResponseId) return;
+  activeTranslationText = normalizeCaptionText(`${activeTranslationText}${event.delta || ""}`);
+  captions.user.translation = activeTranslationText;
+  renderCaption("user", "Realtime 翻譯中");
+}
+
+function applyTranslationDone(event) {
+  if (activeTranslationResponseId && event.response_id !== activeTranslationResponseId) return;
+  activeTranslationText = normalizeCaptionText(event.text || activeTranslationText);
+  captions.user.translation = activeTranslationText;
+  renderCaption("user", "Realtime 翻譯完成");
 }
 
 function applyTranscriptDelta(role, delta) {
@@ -182,7 +192,6 @@ function applyTranscriptDelta(role, delta) {
   captions[role].sourceLanguage = detectCaptionLanguage(captions[role].source);
   if (isChineseCaption(captions[role].sourceLanguage)) captions[role].translation = "";
   renderCaption(role, "即時轉錄中");
-  scheduleCaptionTranslation(captions[role].source, role);
 }
 
 function applyTranscriptDone(role, transcript) {
@@ -193,7 +202,13 @@ function applyTranscriptDone(role, transcript) {
   captions[role].sourceLanguage = detectCaptionLanguage(text);
   renderCaption(role, "完整字幕");
   if (!isChineseCaption(captions[role].sourceLanguage)) {
-    translateCaption(text, role, "完整字幕");
+    try {
+      requestRealtimeTranslation(text, role);
+    } catch (error) {
+      captions[role].translation = "翻譯暫時無法產生";
+      renderCaption(role, "翻譯失敗");
+      logEvent("Realtime 翻譯失敗", error instanceof Error ? error.message : String(error));
+    }
   }
 }
 
@@ -208,8 +223,38 @@ function handleCaptionEvent(event) {
     return;
   }
 
-  // Ada 的回覆只留在事件紀錄，不覆蓋字幕舞台。
-  // LiveLingo 的主畫面必須固定呈現「使用者原語言字幕 + 繁體中文翻譯」。
+  if (event.type === "response.output_text.delta") {
+    applyTranslationDelta(event);
+    return;
+  }
+
+  if (event.type === "response.output_text.done") {
+    applyTranslationDone(event);
+  }
+}
+
+async function createEphemeralKey() {
+  const response = await fetch("/api/realtime/token", { method: "POST" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Realtime token 建立失敗");
+  const key = payload.value || payload.client_secret?.value || payload.client_secret;
+  if (!key) throw new Error("Realtime token 回傳格式不完整");
+  return key;
+}
+
+async function exchangeSdpDirectly(offerSdp) {
+  const ephemeralKey = await createEphemeralKey();
+  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
+    method: "POST",
+    body: offerSdp,
+    headers: {
+      authorization: `Bearer ${ephemeralKey}`,
+      "content-type": "application/sdp"
+    }
+  });
+
+  if (!response.ok) throw new Error(await response.text());
+  return response.text();
 }
 
 async function startConversation() {
@@ -233,7 +278,7 @@ async function startConversation() {
 
     peerConnection.ontrack = (event) => {
       remoteAudio.srcObject = event.streams[0];
-      logEvent("Ada 音訊已接入", "瀏覽器正在播放模型回覆。");
+      logEvent("Realtime 音訊軌已接入", "目前只輸出文字翻譯。");
     };
 
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -259,21 +304,9 @@ async function startConversation() {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
 
-    const sdpResponse = await fetch("/api/realtime/call", {
-      method: "POST",
-      body: offer.sdp,
-      headers: {
-        "content-type": "application/sdp"
-      }
-    });
-
-    if (!sdpResponse.ok) {
-      throw new Error(await sdpResponse.text());
-    }
-
     await peerConnection.setRemoteDescription({
       type: "answer",
-      sdp: await sdpResponse.text()
+      sdp: await exchangeSdpDirectly(offer.sdp)
     });
   } catch (error) {
     setStatus("錯誤", "error");
@@ -290,8 +323,9 @@ function stopConversation() {
   dataChannel = undefined;
   peerConnection = undefined;
   localStream = undefined;
+  activeTranslationResponseId = undefined;
+  activeTranslationText = "";
   remoteAudio.srcObject = null;
-  clearTimeout(captionTranslateTimer);
 
   pulse.classList.remove("live");
   setStatus("待命");
