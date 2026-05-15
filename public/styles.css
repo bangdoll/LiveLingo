@@ -400,6 +400,17 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.session-meta {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  font-family: monospace;
+  font-size: 13px;
+  justify-content: center;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
 .primary {
   background: var(--gold);
   color: #161206;
