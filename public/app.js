@@ -197,8 +197,12 @@ function renderCaption(role, mode = "即時") {
   const isChinese = isChineseCaption(caption.sourceLanguage);
   captionSpeaker.textContent = caption.label;
   captionMode.textContent = captionModeLabel(caption.sourceLanguage, mode);
-  captionPrimary.textContent = caption.source || "正在聆聽...";
-  captionSecondary.textContent = isChinese ? "" : caption.translation || "繁體中文翻譯中...";
+  
+  // 優化：如果是用戶且非中文，不要顯示「正在聆聽」，直接顯示現有內容或空白
+  const fallback = (role === "user" && !isChinese) ? "" : "正在聆聽...";
+  captionPrimary.textContent = caption.source || fallback;
+  
+  captionSecondary.textContent = isChinese ? "" : caption.translation || (role === "user" ? "翻譯中..." : "");
   captionSecondary.hidden = isChinese;
   captionSecondary.setAttribute("aria-hidden", String(isChinese));
   captionPrimary.lang = caption.sourceLanguage;
@@ -493,7 +497,7 @@ function handleCaptionEvent(event) {
     captions.assistant.translation = "";
     captions.assistant.sourceLanguage = "zh-Hant";
     setFaceState("thinking");
-    renderCaption("assistant", "Ada 思考中");
+    // 不立即 renderCaption，保留用戶最後一段話的顯示，直到 Ada 開始有 delta 輸出
     return;
   }
 
@@ -586,6 +590,17 @@ function initSettings() {
   translateLangSelect.addEventListener("change", () => {
     localStorage.setItem("livelingo_translate_lang", translateLangSelect.value);
   });
+
+  const saveApiKeyBtn = document.querySelector("#saveApiKeyBtn");
+  if (saveApiKeyBtn) {
+    saveApiKeyBtn.addEventListener("click", () => {
+      const key = apiKeyInput.value.trim();
+      saveApiKey(key);
+      logEvent("API Key 已儲存", key ? "已啟用自備金鑰" : "已切換回系統金鑰");
+      alert("API Key 已成功儲存！");
+      settingsPanel.hidden = true;
+    });
+  }
 }
 
 // ──── Token 建立（支援 BYOK） ────
