@@ -425,38 +425,42 @@ h2 {
 .log-panel {
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 300px;
-  padding: clamp(18px, 2vw, 24px);
+  min-height: 240px;
+  padding: 16px;
 }
 
 .log-header {
   border-bottom: 1px solid var(--line);
-  padding-bottom: 16px;
+  padding-bottom: 12px;
+}
+
+.log-header h2 {
+  font-size: 16px;
 }
 
 .event-log {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 360px;
+  gap: 6px;
+  max-height: 320px;
   overflow-y: auto;
-  padding-top: 16px;
+  padding-top: 12px;
 }
 
 .event {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 6px;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-  padding: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
 }
 
 .event strong {
   color: var(--text);
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 @media (max-width: 980px) {
