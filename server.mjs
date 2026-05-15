@@ -513,8 +513,9 @@ async function createByokClientSecret(request, response) {
 
   const data = await upstream.json();
   if (!upstream.ok) {
+    const detail = data.error?.message || data.error || JSON.stringify(data);
     sendJson(response, upstream.status, {
-      error: "BYOK token 建立失敗",
+      error: `BYOK token 建立失敗: ${detail}`,
       status: upstream.status,
       detail: data
     });

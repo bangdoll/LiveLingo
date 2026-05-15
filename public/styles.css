@@ -405,10 +405,11 @@ h2 {
   color: var(--muted);
   display: flex;
   font-family: monospace;
-  font-size: 13px;
+  font-size: 11px;
   justify-content: center;
-  margin-top: 16px;
-  padding-top: 12px;
+  margin-top: 12px;
+  opacity: 0.6;
+  padding-top: 8px;
 }
 
 .primary {
@@ -425,8 +426,8 @@ h2 {
 .log-panel {
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 240px;
-  padding: 16px;
+  min-height: 200px;
+  padding: 12px;
 }
 
 .log-header {
