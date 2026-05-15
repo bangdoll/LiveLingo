@@ -375,6 +375,12 @@ async function requestCaptionTranslation(text, role, mode = "final") {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "字幕翻譯失敗");
     if (mode !== "sentence" && request.sequence < latestTranslationSequenceByRole[role]) return;
+    
+    // 記錄 Token 消耗
+    if (result.usage) {
+      updateCostFromUsage(result.usage);
+    }
+    
     captions[role].translation = normalizeCaptionText(result.translation || "");
     renderCaption(role, "逐句翻譯完成");
   } finally {

@@ -383,7 +383,7 @@ async function translateCaption(request, response) {
     return;
   }
 
-  const upstream = await fetch("https://api.openai.com/v1/responses", {
+  const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       authorization: `Bearer ${openaiApiKey}`,
@@ -392,32 +392,22 @@ async function translateCaption(request, response) {
     },
     body: JSON.stringify({
       model: captionModel,
-      max_output_tokens: 120,
-      input: [
+      max_tokens: 120,
+      messages: [
         {
           role: "system",
           content: [
-            {
-              type: "input_text",
-              text: [
-                "你是即時字幕翻譯器。",
-                "把輸入翻譯成指定目標語言，語氣自然、簡潔，適合螢幕字幕。",
-                "如果目標語言是繁體中文，必須使用台灣繁體中文，嚴禁輸出簡體中文。",
-                "如果目標語言是英文，使用自然、清楚的英文。",
-                "保留人名、產品名、AI 名詞與專有名詞。",
-                "只輸出翻譯，不要解釋，不要加引號。"
-              ].join("\n")
-            }
-          ]
+            "你是即時字幕翻譯器。",
+            "把輸入翻譯成指定目標語言，語氣自然、簡潔，適合螢幕字幕。",
+            "如果目標語言是繁體中文，必須使用台灣繁體中文，嚴禁輸出簡體中文。",
+            "如果目標語言是英文，使用自然、清楚的英文。",
+            "保留人名、產品名、AI 名詞與專有名詞。",
+            "只輸出翻譯，不要解釋，不要加引號。"
+          ].join("\n")
         },
         {
           role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: `Target language: ${target}\nSubtitle:\n${text}`
-            }
-          ]
+          content: `Target language: ${target}\nSubtitle:\n${text}`
         }
       ]
     })
@@ -436,7 +426,8 @@ async function translateCaption(request, response) {
   sendJson(response, 200, {
     text,
     target,
-    translation: extractResponseText(data)
+    translation: data.choices?.[0]?.message?.content?.trim() || "",
+    usage: data.usage
   });
 }
 
