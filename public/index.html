@@ -23,10 +23,13 @@
         <section class="coach-panel">
           <div class="topbar">
             <div>
-              <p class="eyebrow">Realtime Translation MVP</p>
+              <p class="eyebrow">Realtime Bilingual Voice</p>
               <h1>LiveLingo</h1>
             </div>
-            <span id="statusBadge" class="status idle">待命</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span id="costBadge" class="status" style="font-family: monospace; background: var(--surface-2); color: var(--text-2);">0 Tokens</span>
+              <span id="statusBadge" class="status idle">待命</span>
+            </div>
           </div>
 
           <div class="coach-body">
@@ -35,7 +38,7 @@
             </div>
 
             <p class="prompt">
-              按下開始後允許麥克風，直接用任一支援語言說話。LiveLingo 會即時顯示原語言字幕，並在第二行輸出繁體中文。
+              按下開始後允許麥克風，直接用任一支援語言說話。LiveLingo 會顯示雙語字幕，也會由 Ada 直接回答你；需要最新資訊時會搜尋網路。
             </p>
           </div>
 
