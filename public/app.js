@@ -509,11 +509,13 @@ function handleCaptionEvent(event) {
 
   if (event.type === "conversation.item.input_audio_transcription.delta") {
     setFaceState("listening");
+    if (translateModeActive) return; // 翻譯模式開啟時，由翻譯通道負責更新 UI
     applyTranscriptDelta("user", event.delta);
     return;
   }
 
   if (event.type === "conversation.item.input_audio_transcription.completed") {
+    if (translateModeActive) return;
     applyTranscriptDone("user", event.transcript);
     return;
   }
@@ -674,7 +676,7 @@ function handleTranslateEvent(event) {
     logEvent(`[Translate] ${event.type}`, eventSummary(event));
   }
 
-  // 1. 來源語言即時轉錄（第一行字幕）
+  // 1. 使用者轉錄（第一行字幕）
   if (event.type === "conversation.item.input_audio_transcription.delta") {
     const delta = event.delta || "";
     captions.user.source = normalizeCaptionText(`${captions.user.source}${delta}`);

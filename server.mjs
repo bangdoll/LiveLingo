@@ -13,8 +13,8 @@ const port = Number(process.env.ADA_REALTIME_PORT || 8787);
 const model = process.env.ADA_REALTIME_MODEL || "gpt-realtime-2";
 const voice = process.env.ADA_REALTIME_VOICE || "marin";
 const captionModel = process.env.ADA_CAPTION_MODEL || "gpt-4o-mini";
-const searchModel = process.env.ADA_SEARCH_MODEL || "gpt-5.5";
-const translateModel = process.env.ADA_TRANSLATE_MODEL || "gpt-realtime-translate";
+const translateModel = process.env.ADA_TRANSLATE_MODEL || "gpt-4o-realtime-preview";
+const realtimeModel = process.env.ADA_REALTIME_MODEL || "gpt-4o-realtime-preview";
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const realtimeSecretTtlSeconds = Number(process.env.ADA_REALTIME_SECRET_TTL_SECONDS || 120);
 
@@ -457,7 +457,12 @@ async function createTranslateClientSecret(request, response) {
       3. 嚴禁輸出簡體中文。`,
       voice: "alloy",
       input_audio_transcription: { model: "gpt-realtime-whisper" },
-      turn_detection: { type: "server_vad" }
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.3, 
+        prefix_padding_ms: 150,
+        silence_duration_ms: 300 // 極短停頓即觸發翻譯
+      }
     })
   });
 
