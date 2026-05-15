@@ -415,8 +415,8 @@ function requestSentenceTranslations(role, forceTail = false) {
     if (isChineseCaption(captions[role].sourceLanguage)) {
       renderCaption(role, "逐句原文");
     } else {
-      renderCaption(role, "逐句待翻譯");
-      queueSentenceTranslation(role, sentence);
+      // 不再呼叫 GPT-4o-mini API，僅依賴 Realtime-Translate
+      renderCaption(role, "等待即時口譯...");
     }
   }
 }
@@ -747,7 +747,7 @@ async function startTranslateConnection(stream) {
     const offer = await translatePeerConnection.createOffer();
     await translatePeerConnection.setLocalDescription(offer);
 
-    const sdpResponse = await fetch(`https://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate`, {
+    const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${translateModel}`, {
       method: "POST",
       body: offer.sdp,
       headers: {

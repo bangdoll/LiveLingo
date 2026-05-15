@@ -442,7 +442,7 @@ async function createTranslateClientSecret(request, response) {
     return;
   }
 
-  const upstream = await fetch("https://api.openai.com/v1/realtime/translations/client_secrets", {
+  const upstream = await fetch("https://api.openai.com/v1/realtime/sessions", {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -450,23 +450,19 @@ async function createTranslateClientSecret(request, response) {
       "openai-safety-identifier": safetyIdentifier(request)
     },
     body: JSON.stringify({
-      session: {
-        model: translateModel,
-        audio: {
-          input: {
-            transcription: { model: "gpt-realtime-whisper" },
-            noise_reduction: { type: "near_field" }
-          },
-          output: { language: targetLanguage }
-        }
-      }
+      model: translateModel,
+      instructions: "You are a real-time translator. Translate everything the user says into the target language. Output ONLY the translation.",
+      voice: "alloy",
+      input_audio_transcription: { model: "gpt-realtime-whisper" },
+      turn_detection: { type: "server_vad" }
     })
   });
 
   const data = await upstream.json();
   if (!upstream.ok) {
+    const detail = data.error?.message || data.error || JSON.stringify(data);
     sendJson(response, upstream.status, {
-      error: "Realtime-Translate token 建立失敗",
+      error: `Realtime-Translate token 建立失敗: ${detail}`,
       status: upstream.status,
       detail: data
     });
