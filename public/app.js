@@ -195,16 +195,25 @@ function isChineseCaption(sourceLanguage) {
 function renderCaption(role, mode = "即時") {
   const caption = captions[role];
   const isChinese = isChineseCaption(caption.sourceLanguage);
-  captionSpeaker.textContent = caption.label;
-  captionMode.textContent = captionModeLabel(caption.sourceLanguage, mode);
   
-  // 優化：如果是用戶且非中文，不要顯示「正在聆聽」，直接顯示現有內容或空白
-  const fallback = (role === "user" && !isChinese) ? "" : "正在聆聽...";
-  captionPrimary.textContent = caption.source || fallback;
+  // 顯示當前辨識語言與目標語言
+  const sourceLabel = languageLabels[caption.sourceLanguage] || "未知";
+  const targetLang = resolveTranslateLang();
+  const targetLabel = languageLabels[targetLang === "zh" ? "zh-Hant" : targetLang] || "繁體中文";
   
-  captionSecondary.textContent = isChinese ? "" : caption.translation || (role === "user" ? "翻譯中..." : "");
+  if (role === "user") {
+    captionSpeaker.textContent = `即時轉錄 (${sourceLabel} → ${targetLabel})`;
+    captionMode.textContent = `模式: ${translateModeActive ? "Realtime-Translate" : "標準"}`;
+  } else {
+    captionSpeaker.textContent = "Ada";
+    captionMode.textContent = mode;
+  }
+  
+  captionPrimary.textContent = caption.source || (role === "user" ? "" : "正在聆聽...");
+  captionPrimary.lang = caption.sourceLanguage;
+  
+  captionSecondary.textContent = isChinese ? "" : (caption.translation || "翻譯中...");
   captionSecondary.hidden = isChinese;
-  captionSecondary.setAttribute("aria-hidden", String(isChinese));
   captionPrimary.lang = caption.sourceLanguage;
   captionSecondary.lang = "zh-Hant";
 }
@@ -592,7 +601,8 @@ function initSettings() {
   });
 
   enableTranslateModeCheckbox.addEventListener("change", () => {
-    localStorage.setItem("livelingo_translate_mode", enableTranslateModeCheckbox.checked);
+    localStorage.setItem("livelingo_translate_enabled", enableTranslateModeCheckbox.checked);
+    logEvent("即時口譯模式", enableTranslateModeCheckbox.checked ? "已開啟" : "已關閉");
   });
 
   translateLangSelect.addEventListener("change", () => {
@@ -671,7 +681,7 @@ async function createTranslateEphemeralKey(targetLang) {
 }
 
 function handleTranslateEvent(event) {
-  const isDebug = true; // 開啟除錯日誌
+  const isDebug = true; 
   if (isDebug && event.type !== "rate_limits.updated") {
     logEvent(`[Translate] ${event.type}`, eventSummary(event));
   }
@@ -681,15 +691,14 @@ function handleTranslateEvent(event) {
     const delta = event.delta || "";
     captions.user.source = normalizeCaptionText(`${captions.user.source}${delta}`);
     captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
-    captionSpeaker.textContent = "即時口譯";
-    captionPrimary.textContent = captions.user.source || "正在聆聽...";
-    captionPrimary.lang = captions.user.sourceLanguage;
+    renderCaption("user", "Realtime-Translate");
     return;
   }
 
   if (event.type === "conversation.item.input_audio_transcription.completed") {
     captions.user.source = normalizeCaptionText(event.transcript || captions.user.source);
-    captionPrimary.textContent = captions.user.source;
+    captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
+    renderCaption("user", "Realtime-Translate");
     return;
   }
 
@@ -697,16 +706,13 @@ function handleTranslateEvent(event) {
   if (event.type === "response.audio_transcript.delta" || event.type === "response.text.delta") {
     const delta = event.delta || "";
     captions.user.translation = normalizeCaptionText(`${captions.user.translation}${delta}`);
-    captionSecondary.textContent = captions.user.translation || "翻譯中...";
-    captionSecondary.hidden = false;
-    captionSecondary.lang = resolveTranslateLang() === "zh" ? "zh-Hant" : resolveTranslateLang();
-    captionMode.textContent = "Realtime-Translate 即時口譯";
+    renderCaption("user", "Realtime-Translate");
     return;
   }
 
   if (event.type === "response.audio_transcript.done" || event.type === "response.text.done") {
     captions.user.translation = normalizeCaptionText(event.transcript || event.text || captions.user.translation);
-    captionSecondary.textContent = captions.user.translation;
+    renderCaption("user", "Realtime-Translate");
     return;
   }
 
@@ -719,8 +725,7 @@ function handleTranslateEvent(event) {
   if (event.type === "input_audio_buffer.committed" || event.type === "session.input_audio_started") {
     captions.user.source = "";
     captions.user.translation = "";
-    captionPrimary.textContent = "正在聆聽...";
-    captionSecondary.textContent = "翻譯中...";
+    renderCaption("user", "Realtime-Translate");
     return;
   }
 

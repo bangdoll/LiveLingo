@@ -451,17 +451,17 @@ async function createTranslateClientSecret(request, response) {
     },
     body: JSON.stringify({
       model: translateModel,
+      modalities: ["text"], // 翻譯通道只需要文字，不需要音訊，這也能節省頻寬與成本
       instructions: `你是專業的即時口譯員。請將使用者的話語即時翻譯成「${targetLanguage === 'zh' ? '台灣繁體中文' : targetLanguage}」。
       1. 只輸出翻譯後的文字，不要包含任何解釋或標點符號。
       2. 保持語意自然、簡潔，適合螢幕字幕。
       3. 嚴禁輸出簡體中文。`,
-      voice: "alloy",
       input_audio_transcription: { model: "gpt-realtime-whisper" },
       turn_detection: {
         type: "server_vad",
         threshold: 0.3, 
-        prefix_padding_ms: 150,
-        silence_duration_ms: 300 // 極短停頓即觸發翻譯
+        prefix_padding_ms: 100,
+        silence_duration_ms: 300 
       }
     })
   });
