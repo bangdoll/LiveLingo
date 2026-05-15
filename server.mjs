@@ -451,7 +451,10 @@ async function createTranslateClientSecret(request, response) {
     },
     body: JSON.stringify({
       model: translateModel,
-      instructions: "You are a real-time translator. Translate everything the user says into the target language. Output ONLY the translation.",
+      instructions: `你是專業的即時口譯員。請將使用者的話語即時翻譯成「${targetLanguage === 'zh' ? '台灣繁體中文' : targetLanguage}」。
+      1. 只輸出翻譯後的文字，不要包含任何解釋或標點符號。
+      2. 保持語意自然、簡潔，適合螢幕字幕。
+      3. 嚴禁輸出簡體中文。`,
       voice: "alloy",
       input_audio_transcription: { model: "gpt-realtime-whisper" },
       turn_detection: { type: "server_vad" }

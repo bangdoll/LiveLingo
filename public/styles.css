@@ -402,13 +402,13 @@ h2 {
 
 .session-meta {
   border-top: 1px solid var(--line);
-  color: var(--muted);
+  color: var(--gold);
   display: flex;
   font-family: monospace;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
   justify-content: center;
   margin-top: 12px;
-  opacity: 0.6;
   padding-top: 8px;
 }
 

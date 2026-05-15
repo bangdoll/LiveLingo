@@ -482,7 +482,7 @@ function updateCostFromUsage(usage) {
   localStorage.setItem("livelingo_lifetime_cost", lifetimeCostUsd);
   
   if (costBadge) {
-    costBadge.textContent = `${sessionTokens} / ${lifetimeTokens} Tokens ($${sessionCostUsd.toFixed(3)})`;
+    costBadge.textContent = `當次: ${sessionTokens} / 累計: ${lifetimeTokens} Tokens ($${sessionCostUsd.toFixed(3)})`;
   }
 }
 
@@ -669,9 +669,13 @@ async function createTranslateEphemeralKey(targetLang) {
 }
 
 function handleTranslateEvent(event) {
-  // Realtime-Translate 會送出 source transcript 和 translated transcript
-  if (event.type === "session.input_transcript.delta") {
-    // 來源語言即時轉錄（第一行字幕）
+  const isDebug = true; // 開啟除錯日誌
+  if (isDebug && event.type !== "rate_limits.updated") {
+    logEvent(`[Translate] ${event.type}`, eventSummary(event));
+  }
+
+  // 1. 來源語言即時轉錄（第一行字幕）
+  if (event.type === "conversation.item.input_audio_transcription.delta") {
     const delta = event.delta || "";
     captions.user.source = normalizeCaptionText(`${captions.user.source}${delta}`);
     captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
@@ -681,15 +685,14 @@ function handleTranslateEvent(event) {
     return;
   }
 
-  if (event.type === "session.input_transcript.done") {
+  if (event.type === "conversation.item.input_audio_transcription.completed") {
     captions.user.source = normalizeCaptionText(event.transcript || captions.user.source);
-    captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
     captionPrimary.textContent = captions.user.source;
     return;
   }
 
-  if (event.type === "session.output_transcript.delta") {
-    // 翻譯後的文字（第二行字幕）
+  // 2. 翻譯後的文字（第二行字幕）
+  if (event.type === "response.audio_transcript.delta" || event.type === "response.text.delta") {
     const delta = event.delta || "";
     captions.user.translation = normalizeCaptionText(`${captions.user.translation}${delta}`);
     captionSecondary.textContent = captions.user.translation || "翻譯中...";
@@ -699,14 +702,19 @@ function handleTranslateEvent(event) {
     return;
   }
 
-  if (event.type === "session.output_transcript.done") {
-    captions.user.translation = normalizeCaptionText(event.transcript || captions.user.translation);
+  if (event.type === "response.audio_transcript.done" || event.type === "response.text.done") {
+    captions.user.translation = normalizeCaptionText(event.transcript || event.text || captions.user.translation);
     captionSecondary.textContent = captions.user.translation;
     return;
   }
 
+  // 3. Token 消耗記錄 (Translate Connection)
+  if (event.type === "response.done" && event.response?.usage) {
+    updateCostFromUsage(event.response.usage);
+  }
+
   // 當偵測到新句子開始，清空前一句
-  if (event.type === "session.input_audio_started") {
+  if (event.type === "input_audio_buffer.committed" || event.type === "session.input_audio_started") {
     captions.user.source = "";
     captions.user.translation = "";
     captionPrimary.textContent = "正在聆聽...";
