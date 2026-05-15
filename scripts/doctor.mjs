@@ -28,7 +28,7 @@ const checks = [
 
 const packageJson = JSON.parse(await readFile(join(appRoot, "package.json"), "utf8"));
 
-console.log("LiveLingo 即時翻譯 MVP 檢查");
+console.log("LiveLingo 即時雙語語音助理檢查");
 console.log(`- 專案：${packageJson.name}`);
 console.log(`- 模型：${process.env.ADA_REALTIME_MODEL || "gpt-realtime-2"}`);
 console.log(`- 語音：${process.env.ADA_REALTIME_VOICE || "marin"}`);
