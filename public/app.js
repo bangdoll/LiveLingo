@@ -365,7 +365,7 @@ async function requestCaptionTranslation(text, role, mode = "final") {
       },
       body: JSON.stringify({
         text: normalized,
-        target: "繁體中文"
+        target: { zh: "繁體中文", en: "English", ja: "日本語", ko: "한국어", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", ru: "Русский", ar: "العربية", it: "Italiano", hi: "हिन्दी", nl: "Nederlands" }[resolveTranslateLang()] || "繁體中文"
       })
     });
     const result = await response.json();
@@ -550,7 +550,15 @@ function getTranslateEnabled() {
 }
 
 function getTranslateLang() {
-  return localStorage.getItem("livelingo_translate_lang") || "zh";
+  return localStorage.getItem("livelingo_translate_lang") || "auto";
+}
+
+function resolveTranslateLang() {
+  const setting = getTranslateLang();
+  if (setting !== "auto") return setting;
+  // 自動偵測：如果來源是中文就翻成英文，否則翻成中文
+  const sourceLanguage = captions.user.sourceLanguage || "zh-Hant";
+  return sourceLanguage === "zh-Hant" ? "en" : "zh";
 }
 
 function initSettings() {
@@ -665,7 +673,7 @@ function handleTranslateEvent(event) {
     captions.user.translation = normalizeCaptionText(`${captions.user.translation}${delta}`);
     captionSecondary.textContent = captions.user.translation || "翻譯中...";
     captionSecondary.hidden = false;
-    captionSecondary.lang = getTranslateLang() === "zh" ? "zh-Hant" : getTranslateLang();
+    captionSecondary.lang = resolveTranslateLang() === "zh" ? "zh-Hant" : resolveTranslateLang();
     captionMode.textContent = "Realtime-Translate 即時口譯";
     return;
   }
@@ -691,7 +699,7 @@ function handleTranslateEvent(event) {
 }
 
 async function startTranslateConnection(stream) {
-  const targetLang = getTranslateLang();
+  const targetLang = resolveTranslateLang();
   logEvent("啟動即時口譯", `目標語言：${targetLang}`);
 
   try {
