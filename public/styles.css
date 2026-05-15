@@ -50,7 +50,7 @@ button:disabled {
 .workspace {
   display: grid;
   gap: clamp(14px, 1.6vw, 22px);
-  grid-template-columns: minmax(320px, 0.86fr) minmax(360px, 1.14fr);
+  grid-template-columns: minmax(400px, 1.45fr) minmax(280px, 0.55fr);
   min-height: 0;
 }
 
