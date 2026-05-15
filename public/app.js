@@ -1,4 +1,5 @@
 const REALTIME_MODEL = "gpt-realtime-2";
+const CAPTION_TRANSLATION_DEBOUNCE_MS = 250;
 
 const startButton = document.querySelector("#startButton");
 const stopButton = document.querySelector("#stopButton");
@@ -173,7 +174,7 @@ function scheduleCaptionTranslation(text, role) {
   if (isChineseCaption(captions[role].sourceLanguage)) return;
   captionTranslateTimer = window.setTimeout(() => {
     translateCaption(text, role, "近即時翻譯");
-  }, 900);
+  }, CAPTION_TRANSLATION_DEBOUNCE_MS);
 }
 
 function applyTranscriptDelta(role, delta) {
