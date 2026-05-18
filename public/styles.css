@@ -400,6 +400,66 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.summary-panel {
+  background: rgba(15, 20, 28, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.summary-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.summary-header h2 {
+  font-size: 16px;
+}
+
+.summary-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.summary-actions button {
+  font-size: 13px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.summary-actions .subtle {
+  color: var(--muted);
+}
+
+.summary-output {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 6px;
+  color: #d7e4f7;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.62;
+  margin: 0;
+  max-height: 190px;
+  min-height: 92px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
 .session-meta {
   border-top: 1px solid var(--line);
   color: var(--gold);
@@ -499,5 +559,18 @@ h2 {
 
   .controls {
     grid-template-columns: 1fr;
+  }
+
+  .summary-header {
+    flex-direction: column;
+  }
+
+  .summary-actions {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .summary-actions button {
+    flex: 1 1 42%;
   }
 }

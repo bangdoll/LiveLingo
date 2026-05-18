@@ -1,4 +1,15 @@
 const REALTIME_MODEL = "gpt-realtime-2";
+const DEFAULT_TRANSLATE_MODEL = "gpt-realtime";
+const TRANSLATE_ENABLED_KEY = "livelingo_translate_enabled";
+const LEGACY_TRANSLATE_ENABLED_KEY = "livelingo_translate_mode";
+const LIVE_TRANSLATION_DEBOUNCE_MS = 220;
+const LOCAL_SPEECH_TRANSLATION_DEBOUNCE_MS = 120;
+const LIVE_TRANSLATION_MIN_CHARS = 4;
+const LIVE_SOURCE_MAX_WORDS = 14;
+const LIVE_TRANSLATION_MAX_WORDS = 9;
+const LIVE_TRANSLATION_MIN_WORDS = 3;
+const LIVE_TRANSLATION_MAX_CHARS = 140;
+const MAX_CAPTURED_SEGMENTS = 120;
 
 const startButton = document.querySelector("#startButton");
 const stopButton = document.querySelector("#stopButton");
@@ -16,6 +27,12 @@ const captionSpeaker = document.querySelector("#captionSpeaker");
 const captionMode = document.querySelector("#captionMode");
 const captionPrimary = document.querySelector("#captionPrimary");
 const captionSecondary = document.querySelector("#captionSecondary");
+const summarizeButton = document.querySelector("#summarizeButton");
+const copySummaryButton = document.querySelector("#copySummaryButton");
+const downloadSummaryButton = document.querySelector("#downloadSummaryButton");
+const clearTranscriptButton = document.querySelector("#clearTranscriptButton");
+const transcriptCount = document.querySelector("#transcriptCount");
+const summaryOutput = document.querySelector("#summaryOutput");
 
 // BYOK 設定
 const settingsToggle = document.querySelector("#settingsToggle");
@@ -56,6 +73,29 @@ let pendingTranslationByRole = {
   user: false,
   assistant: false
 };
+let liveTranslationTimersByRole = {
+  user: undefined,
+  assistant: undefined
+};
+let liveTranslationLastTextByRole = {
+  user: "",
+  assistant: ""
+};
+let liveTranslationInFlightByRole = {
+  user: false,
+  assistant: false
+};
+let pendingLiveTranslationTextByRole = {
+  user: "",
+  assistant: ""
+};
+let localSpeechRecognition;
+let localSpeechActive = false;
+let localSpeechFinalText = "";
+let localSpeechInterimText = "";
+let usingLocalSpeechCaptions = false;
+let capturedTranscriptSegments = [];
+let latestSummary = "";
 let sessionTokens = 0;
 let sessionCostUsd = 0;
 let lifetimeTokens = Number(localStorage.getItem("livelingo_lifetime_tokens") || 0);
@@ -203,7 +243,13 @@ function renderCaption(role, mode = "即時") {
   
   if (role === "user") {
     captionSpeaker.textContent = `即時轉錄 (${sourceLabel} → ${targetLabel})`;
-    captionMode.textContent = `模式: ${translateModeActive ? "Realtime-Translate" : "標準"}`;
+    captionMode.textContent = `模式: ${
+      usingLocalSpeechCaptions
+        ? "本機即時 + 背景校正"
+        : translateModeActive
+          ? "Realtime-Translate"
+          : "標準"
+    }・${mode}`;
   } else {
     captionSpeaker.textContent = "Ada";
     captionMode.textContent = mode;
@@ -215,7 +261,192 @@ function renderCaption(role, mode = "即時") {
   captionSecondary.textContent = isChinese ? "" : (caption.translation || "翻譯中...");
   captionSecondary.hidden = isChinese;
   captionPrimary.lang = caption.sourceLanguage;
-  captionSecondary.lang = "zh-Hant";
+  captionSecondary.lang = resolveTranslateLang() === "zh" ? "zh-Hant" : resolveTranslateLang();
+}
+
+function updateSummaryControls() {
+  const count = capturedTranscriptSegments.length;
+  if (transcriptCount) {
+    transcriptCount.textContent = count
+      ? `已累積 ${count} 個穩定字幕片段，可生成段落總結。`
+      : "尚未累積可總結的字幕片段。";
+  }
+  if (summarizeButton) summarizeButton.disabled = count === 0;
+  if (clearTranscriptButton) clearTranscriptButton.disabled = count === 0;
+  if (copySummaryButton) copySummaryButton.disabled = !latestSummary;
+  if (downloadSummaryButton) downloadSummaryButton.disabled = !latestSummary;
+}
+
+function addCapturedSegment(role, source, translation, mode = "字幕") {
+  const normalizedSource = normalizeCaptionText(source);
+  const normalizedTranslation = normalizeCaptionText(translation);
+  if (!normalizedSource && !normalizedTranslation) return;
+
+  const previous = capturedTranscriptSegments.at(-1);
+  if (
+    previous &&
+    previous.role === role &&
+    previous.source === normalizedSource &&
+    previous.translation === normalizedTranslation
+  ) {
+    return;
+  }
+
+  capturedTranscriptSegments.push({
+    role,
+    source: normalizedSource,
+    translation: normalizedTranslation,
+    mode,
+    at: new Date().toISOString()
+  });
+
+  if (capturedTranscriptSegments.length > MAX_CAPTURED_SEGMENTS) {
+    capturedTranscriptSegments = capturedTranscriptSegments.slice(-MAX_CAPTURED_SEGMENTS);
+  }
+  updateSummaryControls();
+}
+
+function clearCapturedTranscript() {
+  capturedTranscriptSegments = [];
+  latestSummary = "";
+  if (summaryOutput) {
+    summaryOutput.textContent = "聽完一個段落後，按「生成總結」即可整理重點、關鍵詞與可行動事項。";
+  }
+  updateSummaryControls();
+}
+
+async function summarizeCapturedTranscript() {
+  if (!capturedTranscriptSegments.length || !summaryOutput) return;
+  summarizeButton.disabled = true;
+  summaryOutput.textContent = "正在整理目前段落...";
+
+  try {
+    const response = await fetch("/api/caption/summarize", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        segments: capturedTranscriptSegments.slice(-80)
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "段落總結失敗");
+    if (result.usage) updateCostFromUsage(result.usage);
+    latestSummary = normalizeSummaryMarkdown(result.summary || "");
+    summaryOutput.textContent = latestSummary || "目前片段不足以產生總結。";
+    logEvent("段落總結完成", `已整理 ${capturedTranscriptSegments.length} 個字幕片段。`);
+  } catch (error) {
+    latestSummary = "";
+    summaryOutput.textContent = `段落總結失敗：${error instanceof Error ? error.message : String(error)}`;
+    logEvent("段落總結失敗", error instanceof Error ? error.message : String(error));
+  } finally {
+    updateSummaryControls();
+  }
+}
+
+function normalizeSummaryMarkdown(markdown) {
+  const normalized = String(markdown || "")
+    .replace(/^```(?:markdown)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+
+  if (!normalized) return "";
+  const lines = normalized.split("\n").map((line) => line.trimEnd());
+  return lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^##\s+(段落總結|重點|可行動事項)/gm, "### $1")
+    .replace(/^###\s+關鍵詞\s*\n(.+)$/gm, "關鍵詞：$1")
+    .replace(/^(### .+)\n{2,}/gm, "$1\n")
+    .replace(/\n{2,}(關鍵詞：)/g, "\n$1")
+    .trim();
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function summaryMarkdownToHtml(markdown) {
+  const html = [];
+  let inList = false;
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+      html.push(`<h3 style="margin:0 0 4px 0;line-height:1.35;">${escapeHtml(line.slice(4))}</h3>`);
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      if (!inList) {
+        html.push('<ul style="margin:0 0 10px 1.2em;padding-left:1.2em;">');
+        inList = true;
+      }
+      html.push(`<li style="margin:0 0 2px 0;line-height:1.55;">${escapeHtml(line.slice(2))}</li>`);
+      continue;
+    }
+
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+    html.push(`<p style="margin:0 0 10px 0;line-height:1.65;">${escapeHtml(line)}</p>`);
+  }
+
+  if (inList) html.push("</ul>");
+  return html.join("\n");
+}
+
+async function copyLatestSummary() {
+  if (!latestSummary) return;
+  const markdown = normalizeSummaryMarkdown(latestSummary);
+  const html = summaryMarkdownToHtml(markdown);
+
+  if (window.ClipboardItem) {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/plain": new Blob([markdown], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" })
+      })
+    ]);
+  } else {
+    await navigator.clipboard.writeText(markdown);
+  }
+  logEvent("總結已複製", "可貼到 Heptabase、日記、會議紀錄或其他文件。");
+}
+
+function downloadLatestSummary() {
+  if (!latestSummary) return;
+  const blob = new Blob([latestSummary], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  link.href = url;
+  link.download = `livelingo-summary-${stamp}.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  logEvent("總結已下載", "已產生 Markdown 檔。");
 }
 
 function resetCaptions() {
@@ -224,7 +455,158 @@ function resetCaptions() {
     caption.translation = "";
     caption.sourceLanguage = "zh-Hant";
   }
+  liveTranslationInFlightByRole = {
+    user: false,
+    assistant: false
+  };
+  pendingLiveTranslationTextByRole = {
+    user: "",
+    assistant: ""
+  };
+  localSpeechFinalText = "";
+  localSpeechInterimText = "";
+  usingLocalSpeechCaptions = false;
   renderCaption("user", "待命");
+  updateSummaryControls();
+}
+
+function getSpeechRecognitionConstructor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition;
+}
+
+function preferredSpeechRecognitionLanguage() {
+  const targetLang = getTranslateLang();
+  if (targetLang === "en") return "zh-TW";
+  return "en-US";
+}
+
+function visibleLocalSpeechText() {
+  return normalizeCaptionText(`${localSpeechFinalText} ${localSpeechInterimText}`);
+}
+
+function wordsOf(text) {
+  return normalizeCaptionText(text).split(/\s+/).filter(Boolean);
+}
+
+function lastWords(text, maxWords) {
+  const words = wordsOf(text);
+  if (words.length <= maxWords) return normalizeCaptionText(text);
+  return words.slice(-maxWords).join(" ");
+}
+
+function latestReadableSegment(text, maxWords = LIVE_SOURCE_MAX_WORDS) {
+  const normalized = normalizeCaptionText(text);
+  if (!normalized) return "";
+  const segments = normalized
+    .split(/(?<=[.!?。！？；;])\s+|[\n\r]+/)
+    .map((segment) => normalizeCaptionText(segment))
+    .filter(Boolean);
+  return lastWords(segments.at(-1) || normalized, maxWords);
+}
+
+function liveTranslationSegment(text) {
+  const segment = latestReadableSegment(text, LIVE_TRANSLATION_MAX_WORDS);
+  if (!segment) return "";
+  return segment.slice(-LIVE_TRANSLATION_MAX_CHARS);
+}
+
+function shouldTranslateLiveSegment(text) {
+  const normalized = normalizeCaptionText(text);
+  if (normalized.length < LIVE_TRANSLATION_MIN_CHARS) return false;
+  if (wordsOf(normalized).length < LIVE_TRANSLATION_MIN_WORDS) return false;
+  if (isChineseCaption(detectCaptionLanguage(normalized))) return false;
+  return true;
+}
+
+function updateLocalSpeechCaption(mode) {
+  const text = visibleLocalSpeechText();
+  if (!text) return;
+
+  usingLocalSpeechCaptions = true;
+  const displayText = latestReadableSegment(text);
+  const translationText = liveTranslationSegment(text);
+  captions.user.source = displayText;
+  captions.user.sourceLanguage = detectCaptionLanguage(text);
+  renderCaption("user", mode);
+  if (shouldTranslateLiveSegment(translationText)) {
+    scheduleLiveTranslation("user", translationText, {
+      force: true,
+      delayMs: LOCAL_SPEECH_TRANSLATION_DEBOUNCE_MS
+    });
+  }
+}
+
+function startLocalInterimCaptions() {
+  const SpeechRecognition = getSpeechRecognitionConstructor();
+  if (!SpeechRecognition) {
+    logEvent("本機即時聽寫不可用", "此瀏覽器不支援 SpeechRecognition，會改用雲端 Realtime 字幕。");
+    return;
+  }
+
+  stopLocalInterimCaptions();
+  localSpeechRecognition = new SpeechRecognition();
+  localSpeechRecognition.continuous = true;
+  localSpeechRecognition.interimResults = true;
+  localSpeechRecognition.lang = preferredSpeechRecognitionLanguage();
+  localSpeechActive = true;
+  localSpeechFinalText = "";
+  localSpeechInterimText = "";
+  usingLocalSpeechCaptions = true;
+
+  localSpeechRecognition.onresult = (event) => {
+    let finalDelta = "";
+    let interim = "";
+
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const transcript = result[0]?.transcript || "";
+      if (result.isFinal) {
+        finalDelta = normalizeCaptionText(`${finalDelta} ${transcript}`);
+      } else {
+        interim = normalizeCaptionText(`${interim} ${transcript}`);
+      }
+    }
+
+    if (finalDelta) {
+      localSpeechFinalText = normalizeCaptionText(`${localSpeechFinalText} ${finalDelta}`);
+      transcriptTextByRole.user = visibleLocalSpeechText();
+    }
+    localSpeechInterimText = interim;
+    updateLocalSpeechCaption(localSpeechInterimText ? "本機即時聽寫" : "本機聽寫確認");
+  };
+
+  localSpeechRecognition.onerror = (event) => {
+    logEvent("本機即時聽寫錯誤", event.error || "SpeechRecognition 發生錯誤");
+  };
+
+  localSpeechRecognition.onend = () => {
+    if (!localSpeechActive || !localStream) return;
+    window.setTimeout(() => {
+      try {
+        localSpeechRecognition?.start();
+      } catch {
+        // 已在啟動中時瀏覽器會丟例外，可忽略。
+      }
+    }, 120);
+  };
+
+  try {
+    localSpeechRecognition.start();
+    logEvent("本機即時聽寫已啟動", `語言：${localSpeechRecognition.lang}`);
+  } catch (error) {
+    logEvent("本機即時聽寫啟動失敗", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function stopLocalInterimCaptions() {
+  localSpeechActive = false;
+  if (!localSpeechRecognition) return;
+  try {
+    localSpeechRecognition.stop();
+  } catch {
+    // 停止時可能已被瀏覽器關閉，可忽略。
+  }
+  localSpeechRecognition = undefined;
 }
 
 function sendRealtimeEvent(event) {
@@ -362,13 +744,18 @@ async function handleFunctionCall(event) {
 async function requestCaptionTranslation(text, role, mode = "final") {
   const normalized = normalizeCaptionText(text);
   if (normalized.length < 2 || isChineseCaption(captions[role].sourceLanguage)) return;
+  if (mode === "live" && liveTranslationInFlightByRole[role]) {
+    pendingLiveTranslationTextByRole[role] = normalized;
+    return;
+  }
 
   const request = trackTranslationRequest(role, normalized, mode);
   pendingTranslationByRole[role] = true;
+  if (mode === "live") liveTranslationInFlightByRole[role] = true;
   captions[role].source = normalized;
-  captions[role].translation = "";
+  if (mode !== "live") captions[role].translation = "";
   captions[role].sourceLanguage = detectCaptionLanguage(normalized);
-  renderCaption(role, "逐句翻譯中");
+  renderCaption(role, mode === "live" ? "低延遲翻譯中" : "逐句翻譯中");
 
   try {
     const response = await fetch("/api/caption/translate", {
@@ -378,12 +765,13 @@ async function requestCaptionTranslation(text, role, mode = "final") {
       },
       body: JSON.stringify({
         text: normalized,
-        target: { zh: "繁體中文", en: "English", ja: "日本語", ko: "한국어", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", ru: "Русский", ar: "العربية", it: "Italiano", hi: "हिन्दी", nl: "Nederlands" }[resolveTranslateLang()] || "繁體中文"
+        target: { zh: "繁體中文", en: "English", ja: "日本語", ko: "한국어", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", ru: "Русский", ar: "العربية", it: "Italiano", hi: "हिन्दी", nl: "Nederlands" }[resolveTranslateLang()] || "繁體中文",
+        low_latency: mode === "live"
       })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "字幕翻譯失敗");
-    if (mode !== "sentence" && request.sequence < latestTranslationSequenceByRole[role]) return;
+    if (request.sequence < latestTranslationSequenceByRole[role]) return;
     
     // 記錄 Token 消耗
     if (result.usage) {
@@ -391,9 +779,18 @@ async function requestCaptionTranslation(text, role, mode = "final") {
     }
     
     captions[role].translation = normalizeCaptionText(result.translation || "");
-    renderCaption(role, "逐句翻譯完成");
+    addCapturedSegment(role, normalized, captions[role].translation, mode === "live" ? "低延遲翻譯" : "逐句翻譯");
+    renderCaption(role, mode === "live" ? "低延遲翻譯" : "逐句翻譯完成");
   } finally {
-    if (mode === "sentence" || request.sequence >= latestTranslationSequenceByRole[role]) {
+    if (mode === "live") {
+      liveTranslationInFlightByRole[role] = false;
+      const pendingText = pendingLiveTranslationTextByRole[role];
+      pendingLiveTranslationTextByRole[role] = "";
+      if (pendingText && pendingText !== normalized && pendingText !== liveTranslationLastTextByRole[role]) {
+        scheduleLiveTranslation(role, pendingText, { force: true, delayMs: 40 });
+      }
+    }
+    if (mode === "sentence" || mode === "live" || request.sequence >= latestTranslationSequenceByRole[role]) {
       pendingTranslationByRole[role] = false;
     }
   }
@@ -424,10 +821,31 @@ function requestSentenceTranslations(role, forceTail = false) {
     if (isChineseCaption(captions[role].sourceLanguage)) {
       renderCaption(role, "逐句原文");
     } else {
-      // 不再呼叫 GPT-4o-mini API，僅依賴 Realtime-Translate
-      renderCaption(role, "等待即時口譯...");
+      renderCaption(role, "逐句翻譯中");
+      queueSentenceTranslation(role, sentence);
     }
   }
+}
+
+function clearLiveTranslationTimer(role) {
+  if (!liveTranslationTimersByRole[role]) return;
+  clearTimeout(liveTranslationTimersByRole[role]);
+  liveTranslationTimersByRole[role] = undefined;
+}
+
+function scheduleLiveTranslation(role, text, options = {}) {
+  if (translateModeActive && !options.force) return;
+  const normalized = normalizeCaptionText(text);
+  if (!shouldTranslateLiveSegment(normalized)) return;
+  if (normalized === liveTranslationLastTextByRole[role]) return;
+
+  clearLiveTranslationTimer(role);
+  liveTranslationTimersByRole[role] = setTimeout(() => {
+    liveTranslationLastTextByRole[role] = normalized;
+    void requestCaptionTranslation(normalized, role, "live").catch((error) => {
+      logEvent("低延遲翻譯失敗", error instanceof Error ? error.message : String(error));
+    });
+  }, options.delayMs ?? LIVE_TRANSLATION_DEBOUNCE_MS);
 }
 
 function applyAssistantDelta(event) {
@@ -455,10 +873,12 @@ function applyTranscriptDelta(role, delta) {
   transcriptTextByRole[role] = `${transcriptTextByRole[role]}${delta || ""}`;
   const tail = currentUntranslatedTail(role);
   if (tail) {
-    captions[role].source = tail;
-    captions[role].translation = "";
+    const displayText = latestReadableSegment(tail);
+    const translationText = liveTranslationSegment(tail);
+    captions[role].source = displayText;
     captions[role].sourceLanguage = detectCaptionLanguage(tail);
     renderCaption(role, "即時轉錄中");
+    if (shouldTranslateLiveSegment(translationText)) scheduleLiveTranslation(role, translationText);
   }
   requestSentenceTranslations(role, false);
 }
@@ -466,7 +886,9 @@ function applyTranscriptDelta(role, delta) {
 function applyTranscriptDone(role, transcript) {
   const text = normalizeCaptionText(transcript);
   if (!text) return;
+  clearLiveTranslationTimer(role);
   transcriptTextByRole[role] = text;
+  if (isChineseCaption(detectCaptionLanguage(text))) addCapturedSegment(role, text, "", "原文");
   requestSentenceTranslations(role, true);
 }
 
@@ -567,7 +989,15 @@ function saveApiKey(key) {
 }
 
 function getTranslateEnabled() {
-  return localStorage.getItem("livelingo_translate_mode") === "true";
+  const stored = localStorage.getItem(TRANSLATE_ENABLED_KEY);
+  if (stored !== null) return stored === "true";
+  const legacy = localStorage.getItem(LEGACY_TRANSLATE_ENABLED_KEY);
+  if (legacy !== null) {
+    localStorage.setItem(TRANSLATE_ENABLED_KEY, legacy);
+    localStorage.removeItem(LEGACY_TRANSLATE_ENABLED_KEY);
+    return legacy === "true";
+  }
+  return true;
 }
 
 function getTranslateLang() {
@@ -601,12 +1031,13 @@ function initSettings() {
   });
 
   enableTranslateModeCheckbox.addEventListener("change", () => {
-    localStorage.setItem("livelingo_translate_enabled", enableTranslateModeCheckbox.checked);
+    localStorage.setItem(TRANSLATE_ENABLED_KEY, enableTranslateModeCheckbox.checked);
     logEvent("即時口譯模式", enableTranslateModeCheckbox.checked ? "已開啟" : "已關閉");
   });
 
   translateLangSelect.addEventListener("change", () => {
     localStorage.setItem("livelingo_translate_lang", translateLangSelect.value);
+    if (localSpeechActive) startLocalInterimCaptions();
   });
 
   const saveApiKeyBtn = document.querySelector("#saveApiKeyBtn");
@@ -677,17 +1108,21 @@ async function createTranslateEphemeralKey(targetLang) {
   if (!response.ok) throw new Error(payload.error || "Translate token 建立失敗");
   const key = payload.value || payload.client_secret?.value || payload.client_secret;
   if (!key) throw new Error("Translate token 回傳格式不完整");
-  return key;
+  return {
+    key,
+    model: payload.model || DEFAULT_TRANSLATE_MODEL
+  };
 }
 
 function handleTranslateEvent(event) {
-  const isDebug = true; 
+  const isDebug = false;
   if (isDebug && event.type !== "rate_limits.updated") {
     logEvent(`[Translate] ${event.type}`, eventSummary(event));
   }
 
   // 1. 使用者轉錄（第一行字幕）
   if (event.type === "conversation.item.input_audio_transcription.delta") {
+    if (usingLocalSpeechCaptions) return;
     const delta = event.delta || "";
     captions.user.source = normalizeCaptionText(`${captions.user.source}${delta}`);
     captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
@@ -696,6 +1131,7 @@ function handleTranslateEvent(event) {
   }
 
   if (event.type === "conversation.item.input_audio_transcription.completed") {
+    if (usingLocalSpeechCaptions) return;
     captions.user.source = normalizeCaptionText(event.transcript || captions.user.source);
     captions.user.sourceLanguage = detectCaptionLanguage(captions.user.source);
     renderCaption("user", "Realtime-Translate");
@@ -704,6 +1140,7 @@ function handleTranslateEvent(event) {
 
   // 2. 翻譯後的文字（第二行字幕）
   if (event.type === "response.audio_transcript.delta" || event.type === "response.text.delta") {
+    if (usingLocalSpeechCaptions) return;
     const delta = event.delta || "";
     captions.user.translation = normalizeCaptionText(`${captions.user.translation}${delta}`);
     renderCaption("user", "Realtime-Translate");
@@ -723,8 +1160,10 @@ function handleTranslateEvent(event) {
 
   // 當偵測到新句子開始，清空前一句
   if (event.type === "input_audio_buffer.committed" || event.type === "session.input_audio_started") {
+    if (usingLocalSpeechCaptions) return;
     captions.user.source = "";
     captions.user.translation = "";
+    liveTranslationLastTextByRole.user = "";
     renderCaption("user", "Realtime-Translate");
     return;
   }
@@ -739,7 +1178,7 @@ async function startTranslateConnection(stream) {
   logEvent("啟動即時口譯", `目標語言：${targetLang}`);
 
   try {
-    const ephemeralKey = await createTranslateEphemeralKey(targetLang);
+    const { key: ephemeralKey, model: activeTranslateModel } = await createTranslateEphemeralKey(targetLang);
 
     translatePeerConnection = new RTCPeerConnection();
 
@@ -762,7 +1201,7 @@ async function startTranslateConnection(stream) {
     const offer = await translatePeerConnection.createOffer();
     await translatePeerConnection.setLocalDescription(offer);
 
-    const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${translateModel}`, {
+    const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
       body: offer.sdp,
       headers: {
@@ -833,6 +1272,7 @@ async function startConversation() {
         autoGainControl: true
       }
     });
+    startLocalInterimCaptions();
     localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
 
     dataChannel = peerConnection.createDataChannel("oai-events");
@@ -866,6 +1306,7 @@ async function startConversation() {
 }
 
 function stopConversation() {
+  stopLocalInterimCaptions();
   stopTranslateConnection();
 
   if (dataChannel && dataChannel.readyState !== "closed") dataChannel.close();
@@ -898,6 +1339,23 @@ function stopConversation() {
     user: false,
     assistant: false
   };
+  clearLiveTranslationTimer("user");
+  clearLiveTranslationTimer("assistant");
+  liveTranslationLastTextByRole = {
+    user: "",
+    assistant: ""
+  };
+  liveTranslationInFlightByRole = {
+    user: false,
+    assistant: false
+  };
+  pendingLiveTranslationTextByRole = {
+    user: "",
+    assistant: ""
+  };
+  localSpeechFinalText = "";
+  localSpeechInterimText = "";
+  usingLocalSpeechCaptions = false;
   remoteAudio.srcObject = null;
 
   adaFace.classList.remove("live");
@@ -916,3 +1374,12 @@ stopButton.addEventListener("click", stopConversation);
 clearLogButton.addEventListener("click", () => {
   eventLog.textContent = "";
 });
+summarizeButton?.addEventListener("click", () => {
+  void summarizeCapturedTranscript();
+});
+copySummaryButton?.addEventListener("click", () => {
+  void copyLatestSummary();
+});
+downloadSummaryButton?.addEventListener("click", downloadLatestSummary);
+clearTranscriptButton?.addEventListener("click", clearCapturedTranscript);
+updateSummaryControls();

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,9 +6,14 @@ import { config as loadEnv } from "dotenv";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const appRoot = normalize(join(__dirname, ".."));
-const projectRoot = normalize(join(appRoot, "../.."));
 
-loadEnv({ path: join(projectRoot, ".env") });
+const envPaths = [
+  join(appRoot, ".env.local"),
+  join(appRoot, ".env"),
+  "/Users/aios/Projects/00.AI-Notes_Local/.env"
+].filter((path) => existsSync(path));
+
+loadEnv({ path: envPaths });
 
 async function exists(path) {
   try {

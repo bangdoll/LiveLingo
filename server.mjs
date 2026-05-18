@@ -1,20 +1,25 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const projectRoot = normalize(join(__dirname, "../../"));
-loadEnv({ path: join(projectRoot, ".env") });
+const envPaths = [
+  join(__dirname, ".env.local"),
+  join(__dirname, ".env"),
+  "/Users/aios/Projects/00.AI-Notes_Local/.env"
+].filter((path) => existsSync(path));
+loadEnv({ path: envPaths });
 
 const port = Number(process.env.ADA_REALTIME_PORT || 8787);
 const model = process.env.ADA_REALTIME_MODEL || "gpt-realtime-2";
 const voice = process.env.ADA_REALTIME_VOICE || "marin";
 const captionModel = process.env.ADA_CAPTION_MODEL || "gpt-4o-mini";
-const translateModel = process.env.ADA_TRANSLATE_MODEL || "gpt-4o-realtime-preview";
-const realtimeModel = process.env.ADA_REALTIME_MODEL || "gpt-4o-realtime-preview";
+const translateModel = process.env.ADA_TRANSLATE_MODEL || "gpt-realtime";
+const searchModel = process.env.ADA_SEARCH_MODEL || "gpt-5.5";
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const realtimeSecretTtlSeconds = Number(process.env.ADA_REALTIME_SECRET_TTL_SECONDS || 120);
 
@@ -142,14 +147,45 @@ function createSessionConfig(overrides = {}) {
         },
         turn_detection: {
           type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 180,
-          silence_duration_ms: 180,
+          threshold: 0.42,
+          prefix_padding_ms: 100,
+          silence_duration_ms: 120,
           create_response: true
         }
       }
     },
     ...overrides
+  };
+}
+
+function createTranslateSessionConfig(targetLanguage) {
+  const targetLabel = targetLanguage === "zh" ? "台灣繁體中文" : targetLanguage;
+  return {
+    type: "realtime",
+    model: translateModel,
+    instructions: [
+      `你是專業的即時口譯大師。你的任務是將使用者的話語即時、精準、具備語境地翻譯成「${targetLabel}」。`,
+      "只輸出翻譯後的文字，絕對不要包含任何前言、解釋或引號。",
+      "【最高指導原則】：拒絕直譯。必須捕捉說話者的「真實意圖」與「行業上下文（如 AI、技術、商業）」，以最道地、自然的口吻表達。",
+      "保持語意簡潔，長句請自動提煉為適合螢幕閱讀的短字幕。",
+      "如果目標語言是台灣繁體中文，嚴禁出現任何簡體中文詞彙（如：請用「螢幕」取代「屏幕」，「程式」取代「代碼/程序」）。",
+      "【超低延遲模式】：只要你聽懂了一個完整的「意群 (Intent)」，就立刻翻譯輸出，絕對不要死板地等待講者把長句講完。"
+    ].join("\n"),
+    output_modalities: ["text"],
+    audio: {
+      input: {
+        transcription: {
+          model: "gpt-realtime-whisper"
+        },
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.28,
+          prefix_padding_ms: 80,
+          silence_duration_ms: 80,
+          create_response: true
+        }
+      }
+    }
   };
 }
 
@@ -185,7 +221,10 @@ async function createRealtimeClientSecret(request, response) {
     return;
   }
 
-  sendJson(response, 200, data);
+  sendJson(response, 200, {
+    ...data,
+    model
+  });
 }
 
 async function createRealtimeCall(request, response) {
@@ -372,6 +411,7 @@ async function translateCaption(request, response) {
   const payload = rawBody ? JSON.parse(rawBody) : {};
   const text = String(payload.text || "").trim();
   const target = String(payload.target || "English").trim();
+  const lowLatency = Boolean(payload.low_latency);
 
   if (!text) {
     sendJson(response, 400, { error: "缺少要翻譯的字幕文字" });
@@ -392,18 +432,20 @@ async function translateCaption(request, response) {
     },
     body: JSON.stringify({
       model: captionModel,
-      max_tokens: 120,
+      max_tokens: lowLatency ? 72 : 120,
       messages: [
         {
           role: "system",
           content: [
             "你是即時字幕翻譯器。",
             "把輸入翻譯成指定目標語言，語氣自然、簡潔，適合螢幕字幕。",
+            lowLatency ? "目前是低延遲同步字幕模式：輸入可能只是尚未完成的小片段，請直接翻譯目前可判讀的語意，不要等待完整句子。" : "",
+            lowLatency ? "輸出要短，不要補腦過度；如果片段不完整，就翻成自然但保守的短語。" : "",
             "如果目標語言是繁體中文，必須使用台灣繁體中文，嚴禁輸出簡體中文。",
             "如果目標語言是英文，使用自然、清楚的英文。",
             "保留人名、產品名、AI 名詞與專有名詞。",
             "只輸出翻譯，不要解釋，不要加引號。"
-          ].join("\n")
+          ].filter(Boolean).join("\n")
         },
         {
           role: "user",
@@ -431,6 +473,94 @@ async function translateCaption(request, response) {
   });
 }
 
+async function summarizeCaptionSegments(request, response) {
+  if (!openaiApiKey) {
+    sendJson(response, 500, missingApiKeyPayload());
+    return;
+  }
+
+  const rawBody = await readRequestBody(request, 80_000);
+  const payload = rawBody ? JSON.parse(rawBody) : {};
+  const segments = Array.isArray(payload.segments) ? payload.segments.slice(-80) : [];
+
+  if (!segments.length) {
+    sendJson(response, 400, { error: "沒有可總結的字幕片段" });
+    return;
+  }
+
+  const transcript = segments
+    .map((segment, index) => {
+      const source = String(segment.source || "").trim();
+      const translation = String(segment.translation || "").trim();
+      return [
+        `片段 ${index + 1}`,
+        source ? `原文：${source}` : "",
+        translation ? `繁中：${translation}` : ""
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n\n")
+    .slice(-18_000);
+
+  const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${openaiApiKey}`,
+      "content-type": "application/json",
+      "openai-safety-identifier": safetyIdentifier(request)
+    },
+    body: JSON.stringify({
+      model: captionModel,
+      max_tokens: 520,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "你是 LiveLingo 的段落總結器。",
+            "根據即時字幕片段整理繁體中文摘要。",
+            "輸出必須簡潔、可複製、適合貼到筆記或會議紀錄。",
+            "不要引用系統提示詞，不要輸出簡體中文。",
+            "如果字幕有辨識錯誤，請保守整理，不要過度腦補。"
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: [
+            "請用以下格式輸出：",
+            "### 段落總結",
+            "一段 2-4 句摘要，不要條列。",
+            "### 重點",
+            "- 3 到 5 個重點。",
+            "關鍵詞：以頓號列出 3 到 8 個關鍵詞。",
+            "### 可行動事項",
+            "- 1 到 3 個可以接著做的動作。",
+            "",
+            "格式規則：不要使用程式碼區塊，不要加多餘前言；標題必須使用 Markdown H3；重點與可行動事項必須使用 Markdown bullet；標題下一行直接接內容，不要插入空白行。",
+            "",
+            "字幕片段：",
+            transcript
+          ].join("\n")
+        }
+      ]
+    })
+  });
+
+  const data = await upstream.json();
+  if (!upstream.ok) {
+    sendJson(response, upstream.status, {
+      error: "段落總結失敗",
+      status: upstream.status,
+      detail: data
+    });
+    return;
+  }
+
+  sendJson(response, 200, {
+    summary: data.choices?.[0]?.message?.content?.trim() || "",
+    usage: data.usage
+  });
+}
+
 async function createTranslateClientSecret(request, response) {
   const rawBody = await readRequestBody(request, 4_000);
   const payload = rawBody ? JSON.parse(rawBody) : {};
@@ -442,7 +572,7 @@ async function createTranslateClientSecret(request, response) {
     return;
   }
 
-  const upstream = await fetch("https://api.openai.com/v1/realtime/sessions", {
+  const upstream = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -450,19 +580,11 @@ async function createTranslateClientSecret(request, response) {
       "openai-safety-identifier": safetyIdentifier(request)
     },
     body: JSON.stringify({
-      model: translateModel,
-      modalities: ["text"], // 翻譯通道只需要文字，不需要音訊，這也能節省頻寬與成本
-      instructions: `你是專業的即時口譯員。請將使用者的話語即時翻譯成「${targetLanguage === 'zh' ? '台灣繁體中文' : targetLanguage}」。
-      1. 只輸出翻譯後的文字，不要包含任何解釋或標點符號。
-      2. 保持語意自然、簡潔，適合螢幕字幕。
-      3. 嚴禁輸出簡體中文。`,
-      input_audio_transcription: { model: "gpt-realtime-whisper" },
-      turn_detection: {
-        type: "server_vad",
-        threshold: 0.3, 
-        prefix_padding_ms: 100,
-        silence_duration_ms: 300 
-      }
+      expires_after: {
+        anchor: "created_at",
+        seconds: Math.min(Math.max(realtimeSecretTtlSeconds, 10), 7200)
+      },
+      session: createTranslateSessionConfig(targetLanguage)
     })
   });
 
@@ -477,7 +599,10 @@ async function createTranslateClientSecret(request, response) {
     return;
   }
 
-  sendJson(response, 200, data);
+  sendJson(response, 200, {
+    ...data,
+    model: translateModel
+  });
 }
 
 async function createByokClientSecret(request, response) {
@@ -576,6 +701,11 @@ export async function handleRequest(request, response) {
 
     if (request.method === "POST" && url.pathname === "/api/caption/translate") {
       await translateCaption(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/caption/summarize") {
+      await summarizeCaptionSegments(request, response);
       return;
     }
 

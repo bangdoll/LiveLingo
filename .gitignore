@@ -7,3 +7,5 @@ npm-debug.log*
 token.json
 *.pem
 *.key
+.vercel
+.env*.local

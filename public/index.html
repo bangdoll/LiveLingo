@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LiveLingo</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -91,6 +92,22 @@
             <button id="startButton" class="primary" type="button">開始對話</button>
             <button id="stopButton" class="secondary" type="button" disabled>停止</button>
           </div>
+
+          <section class="summary-panel" aria-label="段落總結">
+            <div class="summary-header">
+              <div>
+                <h2>段落總結</h2>
+                <p id="transcriptCount" class="summary-hint">尚未累積可總結的字幕片段。</p>
+              </div>
+              <div class="summary-actions">
+                <button id="summarizeButton" class="secondary" type="button" disabled>生成總結</button>
+                <button id="copySummaryButton" class="secondary" type="button" disabled>複製</button>
+                <button id="downloadSummaryButton" class="secondary" type="button" disabled>下載</button>
+                <button id="clearTranscriptButton" class="secondary subtle" type="button" disabled>清除</button>
+              </div>
+            </div>
+            <pre id="summaryOutput" class="summary-output">聽完一個段落後，按「生成總結」即可整理重點、關鍵詞與可行動事項。</pre>
+          </section>
 
           <div class="session-meta">
             <span id="costBadge">當次: 0 / 累計: 0 Tokens ($0.000)</span>
