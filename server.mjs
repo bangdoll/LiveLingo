@@ -275,6 +275,31 @@ function extractResponseText(payload) {
   return chunks.join("").trim();
 }
 
+function formatTaipeiDate(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+function formatSummaryWithHeader(summary, dateText) {
+  const body = String(summary || "")
+    .replace(/^```(?:markdown)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/^日期：.+\s*\n+/i, "")
+    .replace(/^#\s+LiveLingo\s+段落總結\s*\n+/i, "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+
+  return `日期：${dateText}\n# LiveLingo 段落總結\n\n${body}`.trim();
+}
+
 function collectUrlCitations(value, citations = []) {
   if (!value || typeof value !== "object") return citations;
   if (Array.isArray(value)) {
@@ -500,6 +525,7 @@ async function summarizeCaptionSegments(request, response) {
     })
     .join("\n\n")
     .slice(-18_000);
+  const summaryDate = formatTaipeiDate();
 
   const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -527,6 +553,9 @@ async function summarizeCaptionSegments(request, response) {
           role: "user",
           content: [
             "請用以下格式輸出：",
+            `日期：${summaryDate}`,
+            "# LiveLingo 段落總結",
+            "",
             "### 段落總結",
             "一段 2-4 句摘要，不要條列。",
             "### 重點",
@@ -535,7 +564,7 @@ async function summarizeCaptionSegments(request, response) {
             "### 可行動事項",
             "- 1 到 3 個可以接著做的動作。",
             "",
-            "格式規則：不要使用程式碼區塊，不要加多餘前言；標題必須使用 Markdown H3；重點與可行動事項必須使用 Markdown bullet；標題下一行直接接內容，不要插入空白行。",
+            "格式規則：第一行必須是日期，第二行必須是 Markdown H1 標題；不要使用程式碼區塊，不要加多餘前言；段落區塊標題必須使用 Markdown H3；重點與可行動事項必須使用 Markdown bullet；標題下一行直接接內容，不要插入空白行。",
             "",
             "字幕片段：",
             transcript
@@ -556,7 +585,7 @@ async function summarizeCaptionSegments(request, response) {
   }
 
   sendJson(response, 200, {
-    summary: data.choices?.[0]?.message?.content?.trim() || "",
+    summary: formatSummaryWithHeader(data.choices?.[0]?.message?.content, summaryDate),
     usage: data.usage
   });
 }

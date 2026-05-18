@@ -359,6 +359,7 @@ function normalizeSummaryMarkdown(markdown) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^##\s+(段落總結|重點|可行動事項)/gm, "### $1")
     .replace(/^###\s+關鍵詞\s*\n(.+)$/gm, "關鍵詞：$1")
+    .replace(/^(# .+)\n{2,}/gm, "$1\n")
     .replace(/^(### .+)\n{2,}/gm, "$1\n")
     .replace(/\n{2,}(關鍵詞：)/g, "\n$1")
     .trim();
@@ -393,6 +394,15 @@ function summaryMarkdownToHtml(markdown) {
         inList = false;
       }
       html.push(`<h3 style="margin:0 0 4px 0;line-height:1.35;">${escapeHtml(line.slice(4))}</h3>`);
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+      html.push(`<h2 style="margin:0 0 8px 0;line-height:1.3;">${escapeHtml(line.slice(2))}</h2>`);
       continue;
     }
 
